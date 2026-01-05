@@ -200,3 +200,4 @@ C:\personalProject\card\Card.Api\obj\Debug\net10.0\swae.build.ex.cache
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.csproj.Up2Date
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.genruntimeconfig.cache
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\ref\Card.Api.dll
+C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.sourcelink.json

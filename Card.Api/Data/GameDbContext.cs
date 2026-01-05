@@ -8,6 +8,8 @@ namespace Card.Api.Data;
 /// </summary>
 public class GameDbContext : DbContext
 {
+    public GameDbContext(DbContextOptions<GameDbContext> options)
+        : base(options){}
     public DbSet<User> Users => Set<User>();
     public DbSet<GameCard> Cards => Set<GameCard>();
     public DbSet<Deck> Decks => Set<Deck>();

@@ -1,12 +1,37 @@
-// 게임 룸
-
-namespace Card.Api.Domain;
+using Card.Api.Domain;
 
 public class GameRoom
 {
     public string RoomId { get; set; } = Guid.NewGuid().ToString();
-    public List<Player> Players { get; set; } = new();
-    public Stack<Card> Deck { get; set; } = new();
-    public List<Card> DiscardPile { get; set; } = new();
-    public GameState State { get; set; } = new();
+
+    public List<Player> Players { get; } = new();
+
+    // ✅ 반드시 있어야 함
+    public List<PlayingCard> Deck { get; set; } = new();
+
+    // ✅ 반드시 있어야 함
+    public List<PlayingCard> DiscardPile { get; } = new();
+
+    public PlayingCard? LastDiscardedCard { get; set; }
+
+    public string? CurrentTurnPlayerId { get; set; }
+
+    public bool IsStarted { get; set; }
+    public bool IsFinished { get; set; }
+
+    public int CurrentRound { get; set; } = 1;
+    public int TotalRounds { get; set; } = 3;
+
+    public string? WinnerPlayerId { get; set; }
+
+    public WinReason? WinReason { get; set; }
+}
+
+public enum WinReason
+{
+    SixCardImmediate,     // 6장 즉시 종료
+    FinalWaitInterrupt,   // 2장 대기 상태 인터럽트
+    TripleInterrupt,      // 3장 트리플 인터럽트
+    Straight,             // 스트레이트
+    ManualDeclare         // DeclareWin 버튼
 }
