@@ -10,7 +10,7 @@ public class GameDbContext : DbContext
 {
     public GameDbContext(DbContextOptions<GameDbContext> options)
         : base(options){}
-    public DbSet<User> Users => Set<User>();
+    public DbSet<User> Users { get; set; } = null!;
     public DbSet<GameCard> Cards => Set<GameCard>();
     public DbSet<Deck> Decks => Set<Deck>();
     public DbSet<Match> Matches => Set<Match>();

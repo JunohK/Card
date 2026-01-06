@@ -49,8 +49,6 @@ C:\personalProject\card\Card.Api\obj\Debug\net10.0\refint\Card.Api.dll
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.pdb
 C:\personalProject\card\Card.Api\bin\Debug\net10.0\appsettings.Development.json
 C:\personalProject\card\Card.Api\bin\Debug\net10.0\appsettings.json
-C:\personalProject\card\Card.Api\bin\Debug\net10.0\package-lock.json
-C:\personalProject\card\Card.Api\bin\Debug\net10.0\package.json
 C:\personalProject\card\Card.Api\bin\Debug\net10.0\Card.Api.staticwebassets.endpoints.json
 C:\personalProject\card\Card.Api\bin\Debug\net10.0\Card.Api.exe
 C:\personalProject\card\Card.Api\bin\Debug\net10.0\Card.Api.deps.json
@@ -201,3 +199,11 @@ C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.csproj.Up2Date
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.genruntimeconfig.cache
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\ref\Card.Api.dll
 C:\personalProject\card\Card.Api\obj\Debug\net10.0\Card.Api.sourcelink.json
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.AspNetCore.Authentication.JwtBearer.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Abstractions.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.IdentityModel.JsonWebTokens.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Logging.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Protocols.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Protocols.OpenIdConnect.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\Microsoft.IdentityModel.Tokens.dll
+C:\personalProject\card\Card.Api\bin\Debug\net10.0\System.IdentityModel.Tokens.Jwt.dll

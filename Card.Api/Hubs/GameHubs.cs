@@ -1,9 +1,11 @@
 using Card.Api.Services;
 using Card.Api.Domain;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.Authorization;
 
 namespace Card.Hubs;
 
+[Authorize]
 public class GameHub : Hub
 {
     private readonly GameRoomService _roomService;
@@ -170,5 +172,28 @@ public class GameHub : Hub
 
         await Clients.Group(roomId)
             .SendAsync("RoomUpdated", room);
+    }
+
+    // 메세지(채팅) 전송 기능 - 클라이언트에서 메세지 보내면 모든 클라이언트에게 전송
+    public async Task SendChatMessage(string user, string message)
+    {
+        await Clients.All.SendAsync("ReceiveMessage", user, message);
+    }
+
+    // SignalR 인증 연동(JWT)
+    public override async Task OnConnectedAsync()
+    {
+        var userId = Context.UserIdentifier;
+        var nickname = Context.User?.Identity?.Name;
+
+        Console.WriteLine($"Connected : {nickname} ({userId})");
+
+        await base.OnConnectedAsync();
+    }
+
+    public async Task SendSystemMessage(string message)
+    {
+        var nickname = Context.User?.Identity?.Name ?? "Unknown";
+        await Clients.All.SendAsync("ReceiveMessage", nickname, message);
     }
 }
