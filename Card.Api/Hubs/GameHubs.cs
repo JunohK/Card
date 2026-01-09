@@ -86,7 +86,8 @@ public class GameHub : Hub
                     Title = r.Title,
                     PlayerCount = r.Players.Count,
                     IsStarted = r.IsStarted,
-                    IsLocked = !string.IsNullOrEmpty(r.Password)
+                    IsLocked = !string.IsNullOrEmpty(r.Password),
+                    PlayerNames = r.Players.Select(p => p.Name).ToList()
                 })
             );
 
@@ -131,7 +132,8 @@ public class GameHub : Hub
                 Title = r.Title,
                 PlayerCount = r.Players.Count,
                 IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password)
+                IsLocked = !string.IsNullOrEmpty(r.Password),
+                PlayerNames = r.Players.Select(p => p.Name).ToList()
             })
         );
 
@@ -170,7 +172,8 @@ public class GameHub : Hub
                 Title = r.Title,
                 PlayerCount = r.Players.Count,
                 IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password)
+                IsLocked = !string.IsNullOrEmpty(r.Password),
+                PlayerNames = r.Players.Select(p => p.Name).ToList()
             })
         );
     }

@@ -5,4 +5,7 @@ public class RoomSummaryDTO
     public int PlayerCount { get; set; }
     public bool IsStarted { get; set; }
     public bool IsLocked { get; set; }
+    
+    // 닉네임 추가
+    public List<string> PlayerNames { get; set; } = new();
 }
