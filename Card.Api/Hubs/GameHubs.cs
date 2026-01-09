@@ -9,36 +9,170 @@ namespace Card.Hubs;
 public class GameHub : Hub
 {
     private readonly GameRoomService _roomService;
+    private readonly PlayerConnectionService _connService;
 
-    public GameHub(GameRoomService roomService)
+    public GameHub(
+        GameRoomService roomService,
+        PlayerConnectionService connService)
     {
         _roomService = roomService;
+        _connService = connService;
+    }
+
+    public override async Task OnConnectedAsync()
+    {
+        var nickname = Context.User?.Identity?.Name ?? "Unknown";
+        var userId = Context.UserIdentifier;
+
+        Console.WriteLine($"Connected : {nickname} ({userId})");
+
+        Console.WriteLine("SignalR Connected");
+        Console.WriteLine("User null? " + (Context.User == null));
+        Console.WriteLine("Identity null? " + (Context.User?.Identity == null));
+        Console.WriteLine("Name: " + Context.User?.Identity?.Name);
+
+        // ConnectionId <-> Player 바인딩
+        _connService.Bind(Context.ConnectionId, nickname);
+
+        // 로비 접속 시 방 목록 전달
+        var rooms = _roomService.GetRooms()
+            .Select(r => new RoomSummaryDTO
+            {
+                RoomId = r.RoomId,
+                Title = r.Title,
+                PlayerCount = r.Players.Count,
+                IsStarted = r.IsStarted,
+                IsLocked = !string.IsNullOrEmpty(r.Password)
+            });
+
+        await Clients.Caller.SendAsync("RoomList", rooms);
+
+        await base.OnConnectedAsync();
+        // await Clients.Caller.SendAsync(
+        //     "RoomList",
+        //     _roomService.GetRooms()
+        // );
+    }
+
+    public override Task OnDisconnectedAsync(Exception? exception)
+    {
+        _connService.Unbind(Context.ConnectionId);
+        return base.OnDisconnectedAsync(exception);
     }
 
     /// <summary>
     /// 방 생성
     /// </summary>
-    public async Task CreateRoom(string playerName)
+    public async Task CreateRoom(string title, string? password)
     {
-        var room = _roomService.CreateRoom(playerName);
+        try
+        {
+            Console.WriteLine("CreateRoom called");
 
-        await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomId);
+            var nickname = Context.User!.Identity!.Name!;
+            Console.WriteLine("nickname: " + nickname);
 
-        await Clients.Caller.SendAsync("RoomCreated", room.RoomId);
+            var room = _roomService.CreateRoom(nickname, title, password);
+            Console.WriteLine("room created: " + room.RoomId);
+
+            await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomId);
+            Console.WriteLine("added to group");
+
+            await Clients.All.SendAsync(
+                "RoomList",
+                _roomService.GetRooms().Select(r => new RoomSummaryDTO
+                {
+                    RoomId = r.RoomId,
+                    Title = r.Title,
+                    PlayerCount = r.Players.Count,
+                    IsStarted = r.IsStarted,
+                    IsLocked = !string.IsNullOrEmpty(r.Password)
+                })
+            );
+
+            await Clients.Caller.SendAsync("RoomCreated", room.RoomId);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("🔥 CreateRoom ERROR");
+            Console.WriteLine(ex.ToString());
+            throw; // ← 이거 있어야 클라이언트에 에러 전달됨
+        }
     }
+
 
     /// <summary>
     /// 방 입장
     /// </summary>
-    public async Task JoinRoom(string roomId, string playerName)
+    public async Task JoinRoom(string roomId, string? password)
     {
-        var room = _roomService.JoinRoom(roomId, playerName);
+        var room = _roomService.GetRoom(roomId);
+
         if (room == null)
-            return;
+            throw new HubException("방이 존재하지 않습니다.");
+
+        if (!string.IsNullOrEmpty(room.Password) && room.Password != password)
+            throw new HubException("비밀번호가 틀렸습니다.");
+
+        // ← 여기에 Player 객체 추가
+        room.Players.Add(new Player
+        {
+            PlayerId = Context.ConnectionId,
+            Name = Context.User?.Identity?.Name ?? "Unknown"
+        });
 
         await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
 
+        await Clients.All.SendAsync(
+            "RoomList",
+            _roomService.GetRooms().Select(r => new RoomSummaryDTO
+            {
+                RoomId = r.RoomId,
+                Title = r.Title,
+                PlayerCount = r.Players.Count,
+                IsStarted = r.IsStarted,
+                IsLocked = !string.IsNullOrEmpty(r.Password)
+            })
+        );
+
         await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+    }
+
+
+    /// <summary>
+    /// 방 나가기
+    /// </summary>
+    public async Task LeaveRoom(string roomId)
+    {
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
+
+        await Clients.All.SendAsync(
+            "RoomList",
+            _roomService.GetRooms().Select(r => new RoomSummaryDTO
+            {
+                RoomId = r.RoomId,
+                PlayerCount = r.Players.Count,
+                IsStarted = r.IsStarted
+            })
+        );
+    }
+
+    /// <summary>
+    /// 로비 입장 시 방 목록 불러오기 -- 일단 미사용
+    /// </summary>
+    public async Task RequestRoomList()
+    {
+        await Clients.Caller.SendAsync(
+            "RoomList",
+            _roomService.GetRooms().Select(r => new RoomSummaryDTO
+            {
+                RoomId = r.RoomId,
+                Title = r.Title,
+                PlayerCount = r.Players.Count,
+                IsStarted = r.IsStarted,
+                IsLocked = !string.IsNullOrEmpty(r.Password)
+            })
+        );
     }
 
     /// <summary>
@@ -175,21 +309,22 @@ public class GameHub : Hub
     }
 
     // 메세지(채팅) 전송 기능 - 클라이언트에서 메세지 보내면 모든 클라이언트에게 전송
-    public async Task SendChatMessage(string user, string message)
+    public async Task SendChatMessage(string message)
     {
-        await Clients.All.SendAsync("ReceiveMessage", user, message);
+        var nickname = Context.User?.Identity?.Name ?? "Unknown";
+        await Clients.All.SendAsync("ReceiveMessage", nickname, message);
     }
 
     // SignalR 인증 연동(JWT)
-    public override async Task OnConnectedAsync()
-    {
-        var userId = Context.UserIdentifier;
-        var nickname = Context.User?.Identity?.Name;
+    // public override async Task OnConnectedAsync()
+    // {
+    //     var userId = Context.UserIdentifier;
+    //     var nickname = Context.User?.Identity?.Name;
 
-        Console.WriteLine($"Connected : {nickname} ({userId})");
+    //     Console.WriteLine($"Connected : {nickname} ({userId})");
 
-        await base.OnConnectedAsync();
-    }
+    //     await base.OnConnectedAsync();
+    // }
 
     public async Task SendSystemMessage(string message)
     {

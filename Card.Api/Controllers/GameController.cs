@@ -29,7 +29,14 @@ public class GameController : ControllerBase
         if(string.IsNullOrWhiteSpace(request.PlayerName))
             return BadRequest("PlayerName is required");
 
-        var room = _gameRoomService.CreateRoom(request.PlayerName);
+        if(string.IsNullOrWhiteSpace(request.Title))
+            return BadRequest("Title is required");
+
+        var room = _gameRoomService.CreateRoom(
+            request.PlayerName,
+            request.Title,
+            request.Password
+        );
         return Ok(room);
     }
 

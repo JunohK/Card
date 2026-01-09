@@ -20,7 +20,7 @@ export async function signup(nickname: string, password: string){
 export async function login(nickname: string, password: string){
     const res = await fetch("http://localhost:5101/api/auth/login", {
         method: "POST",
-        headers: { "Context-Type" : "application/json"},
+        headers: { "Content-Type" : "application/json"},
         body : JSON.stringify({
             nickname,
             password

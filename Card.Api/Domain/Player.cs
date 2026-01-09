@@ -17,4 +17,5 @@ public class Player
 
     // 누적 점수
     public int Score { get; set; } = 0;
+    public List<Player> Players { get; set; } = new();
 }

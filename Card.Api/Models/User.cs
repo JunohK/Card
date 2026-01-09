@@ -10,7 +10,7 @@ public class User
     public string PasswordHash { get; set; } = null!;
 
     [Required]
-    [MaxLength(20)]
+    [MaxLength(100)]
     public string Nickname { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; }= DateTime.UtcNow;

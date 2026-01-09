@@ -4,12 +4,12 @@ public class GameRoom
 {
     public string RoomId { get; set; } = Guid.NewGuid().ToString();
 
-    public List<Player> Players { get; } = new();
+    public string Title { get; set; } = "";
+    public string? Password { get; set; }
+    public List<Player> Players { get; set; } = new();
 
-    // ✅ 반드시 있어야 함
     public List<PlayingCard> Deck { get; set; } = new();
 
-    // ✅ 반드시 있어야 함
     public List<PlayingCard> DiscardPile { get; } = new();
 
     public PlayingCard? LastDiscardedCard { get; set; }

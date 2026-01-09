@@ -3,23 +3,34 @@ import MainPage from "../pages/MainPage";
 import LoginPage from "../pages/LoginPage";
 import LobbyPage from "../pages/LobbyPage";
 import SignupPage from "../pages/SignupPage";
-import { authStorage } from "../auth/authStorage";
-
+import RoomPage from "../pages/RoomPage";
+import { useAuth } from "../auth/authContext";
 
 export default function AppRouter() {
-    const isAuth = !!authStorage.getToken();
+    const { isAuth } = useAuth();
 
     return (
         <BrowserRouter>
             <Routes>
+                {/* 공개 페이지 */}
                 <Route path="/" element={<MainPage />} />
                 <Route path="/login" element={<LoginPage />} />
                 <Route path="/signup" element={<SignupPage />} />
+
+                {/* 로그인 필수 */}
                 <Route
                     path="/lobby"
-                    element={isAuth ? <LobbyPage /> : <Navigate to="/login" />}
+                    element={isAuth ? <LobbyPage /> : <Navigate to="/login" replace />}
                 />
-                <Route path="*" element={<Navigate to="/login" />} />
+
+                {/* ✅ 방 페이지 (로그인 필수) */}
+                <Route
+                    path="/room/:roomId"
+                    element={isAuth ? <RoomPage /> : <Navigate to= "/login" replace />}
+                />
+
+                {/* fallback */}
+                <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
         </BrowserRouter>
     );

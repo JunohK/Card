@@ -75,13 +75,23 @@ export default function SignupPage() {
                 {error && <p className="text-red-400 text-sm">{error}</p>}
                 {success && <p className="text-green-400 text-sm">회원가입 완료</p>}
 
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition disabled:opacity-50"
-                >
-                    {loading ? "처리 중..." : "회원가입"}
-                </button>
+                <div className="flex gap-4">
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition disabled:opacity-50"
+                    >
+                        {loading ? "처리 중..." : "회원가입"}
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => navigate("/login")}
+                        className="flex-1 py-3 rounded-xl bg-zinc-700 hover:bg-zinc-600 transition"
+                    >
+                        뒤로
+                    </button>
+                </div>
             </form>
         </div>
     )

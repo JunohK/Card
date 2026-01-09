@@ -15,13 +15,21 @@ public class GameRoomService
     /// <summary>
     /// 방 생성
     /// </summary>
-    public GameRoom CreateRoom(string hostPlayerName)
+    public GameRoom CreateRoom(
+        string playerName,
+        string title,
+        string? password
+    )
     {
-        var room = new GameRoom();
+        var room = new GameRoom
+        {
+            Title = title,
+            Password = string.IsNullOrWhiteSpace(password) ? null : password
+        };
 
         var host = new Player
         {
-            Name = hostPlayerName
+            Name = playerName
         };
 
         room.Players.Add(host);
@@ -33,10 +41,20 @@ public class GameRoomService
     /// <summary>
     /// 방 입장
     /// </summary>
-    public GameRoom? JoinRoom(string roomId, string playerName)
+    public GameRoom? JoinRoom(
+        string roomId,
+        string playerName,
+        string? password = null)
     {
         if (!_rooms.TryGetValue(roomId, out var room))
             return null;
+
+        // 비밀번호 검사
+        if (!string.IsNullOrWhiteSpace(room.Password))
+        {
+            if(room.Password != password)
+                throw new Exception("비밀번호가 틀렸습니다.");
+        }
 
         // 최대 7명 제한
         if (room.Players.Count >= 7)
@@ -466,6 +484,18 @@ public class GameRoomService
                 DrawCard(room, player);
             }
         }
+    }
+
+    // 방 목록 조회(로비)
+    public IEnumerable<GameRoom> GetRooms()
+    {
+        return _rooms.Values;
+    }
+
+    // 방 삭제(호스트 나가면)
+    public void RemoveRoom(string roomId)
+    {
+        _rooms.TryRemove(roomId, out _);
     }
 
     internal bool TryInterrupt(GameRoom room, string playerId, List<int> handIndexes)

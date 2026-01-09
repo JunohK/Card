@@ -49,7 +49,7 @@ public class AuthController : ControllerBase
     // 로그인
     [HttpPost("login")]
     public async Task<ActionResult<LoginResponseDTO>> Login(
-        LoginRequestDTO dto,
+        [FromBody] LoginRequestDTO dto,
         [FromServices] JwtTokenService jwt
     )
     {

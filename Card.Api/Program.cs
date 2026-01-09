@@ -2,63 +2,68 @@ using Card.Api.Data;
 using Card.Api.Data.Seed;
 using Card.Api.Services;
 using Card.Hubs;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
-
-//JWT
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using System.Security.Claims;
 using System.Text;
-using Microsoft.Extensions.Options;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// JWT
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "DEV_SECRET_KEY_123456789";
-var jwtIssuer = "CardGameServer";
+// =================================
+// JWT 설정 (Issuer / Key 통일)
+// =================================
+var jwtKey = builder.Configuration["Jwt:Key"]
+             ?? "DEV_SECRET_KEY_13579";
+
+var jwtIssuer = builder.Configuration["Jwt:Issuer"]
+                ?? "CardGameServer";
 
 // ---------------------------------
-// 서비스 등록 영역 (Build 이전)
+// Services
 // ---------------------------------
 
-// JWT
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = false,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        IssuerSigningKey = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(jwtKey)
-        )
-    };
+        options.SaveToken = true; 
+        options.RequireHttpsMetadata = false;
 
-    // SignalR 용 토큰 처리
-    options.Events = new JwtBearerEvents
-    {
-        OnMessageReceived = context =>
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            var accessToken = context.Request.Query["access_token"];
+            ValidateIssuer = true,
+            ValidateAudience = false,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(jwtKey)
+            ),
+            NameClaimType = ClaimTypes.NameIdentifier
+        };
 
-            // SignalR Hub 경로일 때만 허용
-            if(!string.IsNullOrEmpty(accessToken) &&
-                context.HttpContext.Request.Path.StartsWithSegments("/gamehub"))
+        // ⭐⭐⭐ SignalR JWT 처리 핵심
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
             {
-                context.Token = accessToken;
-            }
+                var accessToken = context.Request.Query["access_token"];
+                var path = context.HttpContext.Request.Path;
 
-            return Task.CompletedTask;
-        }
-    };
-});
+                Console.WriteLine($"[SignalR] Path: {path}");
+                Console.WriteLine($"[SignalR] Token: {accessToken}");
+
+                if (!string.IsNullOrEmpty(accessToken) &&
+                    path.StartsWithSegments("/gamehub"))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+    });
 
 builder.Services.AddAuthorization();
 
@@ -82,7 +87,7 @@ builder.Services.AddCors(options =>
     });
 });
 
-// DB (옵션 포함 → 딱 1번만)
+// DB
 builder.Services.AddDbContext<GameDbContext>(options =>
 {
     options.UseSqlite("Data Source=cardgame.db");
@@ -92,17 +97,19 @@ builder.Services.AddDbContext<GameDbContext>(options =>
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 
-// Game Room Service
+// Services
 builder.Services.AddScoped<JwtTokenService>();
-builder.Services.AddSingleton<GameRoomService>();
 builder.Services.AddScoped<PasswordHashService>();
+builder.Services.AddSingleton<GameRoomService>();
+builder.Services.AddSingleton<PlayerConnectionService>();
+
 // ---------------------------------
-// 앱 빌드 (여기서부터 app)
+// Build
 // ---------------------------------
 var app = builder.Build();
 
 // ---------------------------------
-// DB Seed (Build 이후, Run 이전)
+// DB Seed
 // ---------------------------------
 using (var scope = app.Services.CreateScope())
 {
@@ -111,7 +118,7 @@ using (var scope = app.Services.CreateScope())
 }
 
 // ---------------------------------
-// 미들웨어
+// Middleware
 // ---------------------------------
 if (app.Environment.IsDevelopment())
 {
@@ -119,19 +126,20 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-// app.UseHttpsRedirection();
 app.UseCors("AllowFrontend");
+
 app.UseRouting();
+
 app.UseAuthentication();
 app.UseAuthorization();
 
 // ---------------------------------
-// 엔드포인트
+// Endpoints
 // ---------------------------------
 app.MapControllers();
 app.MapHub<GameHub>("/gamehub");
 
 // ---------------------------------
-// 실행 (항상 맨 마지막)
+// Run
 // ---------------------------------
 app.Run();

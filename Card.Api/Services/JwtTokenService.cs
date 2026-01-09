@@ -14,8 +14,11 @@ public class JwtTokenService
 
     public JwtTokenService(IConfiguration config)
     {
-        _key = config["jwt:key"] ?? "DEV_SECRET_KEY_1234566789";
-        _issuer = "CardGameServer";
+        _key = config["Jwt:Key"]
+               ?? "DEV_SECRET_KEY_13579";
+
+        _issuer = config["Jwt:Issuer"]
+                  ?? "CardGameServer";
     }
 
     public string CreateToken(User user)
@@ -33,6 +36,7 @@ public class JwtTokenService
 
         var token = new JwtSecurityToken(
             issuer: _issuer,
+            audience: null,
             claims: claims,
             expires: DateTime.UtcNow.AddHours(6),
             signingCredentials: creds
