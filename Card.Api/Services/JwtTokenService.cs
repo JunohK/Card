@@ -15,7 +15,7 @@ public class JwtTokenService
     public JwtTokenService(IConfiguration config)
     {
         _key = config["Jwt:Key"]
-               ?? "DEV_SECRET_KEY_13579";
+               ?? "Junoh_Card_Key";
 
         _issuer = config["Jwt:Issuer"]
                   ?? "CardGameServer";
@@ -41,7 +41,7 @@ public class JwtTokenService
             expires: DateTime.UtcNow.AddHours(6),
             signingCredentials: creds
         );
-        
+
         return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

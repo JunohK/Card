@@ -19,87 +19,66 @@ export default function LobbyPage() {
     const [rooms, setRooms] = useState<RoomSummary[]>([]);
     const [messages, setMessages] = useState<string[]>([]);
     const [input, setInput] = useState("");
+    const [myName, setMyName] = useState("");
 
     // 방만들기 UI
     const [showCreate, setShowCreate] = useState(false);
     const [title, setTitle] = useState("");
     const [password, setPassword] = useState("");
 
-useEffect(() => {
-    let mounted = true;
+    useEffect(() => {
+        let mounted = true;
 
-    const setup = async () => {
-        // 1️⃣ 이벤트 등록
-        connection.on("ReceiveMessage", (user: string, message: string) => {
-            if (!mounted) return;
-            setMessages(prev => [...prev, `${user} : ${message}`]);
-        });
-        connection.on("RoomList", (rooms: RoomSummary[]) => {
-            if (!mounted) return;
-            setRooms(rooms);
-        });
-
-        connection.on("RoomCreated", (roomId: string) => {
-            navigate(`/room/${roomId}`);
-        });
-        connection.on("JoinRoomSuccess", (roomId: string) => {
-            navigate(`/room/${roomId}`);
-        });
-
-        // 2️⃣ 연결 시도
-        if (connection.state === "Disconnected") {
-            try {
-                await connection.start();
-            } catch (err) {
-                console.error("SignalR 연결 실패:", err);
-                setConnected(false);
-                return;
-            }
-        }
-
-        // 3️⃣ 연결 완료 시 invoke 호출
-        const waitForConnected = async () => {
-            if (connection.state === "Connected") return;
-            await new Promise<void>((resolve) => {
-                const handler = () => {
-                    connection.off("reconnecting", handler);
-                    resolve();
-                };
-                connection.on("reconnecting", handler);
+        const setup = async () => {
+            // 이벤트 먼저 등록
+            connection.on("ConnectedUser", (name: string) => {
+                if (mounted) setMyName(name);
             });
-        };
-        await waitForConnected();
 
-        if (!mounted) return;
-        setConnected(true);
+            connection.on("ReceiveMessage", (user, message) => {
+                if (mounted)
+                    setMessages(prev => [...prev, `${user} : ${message}`]);
+            });
 
-        try {
-            await connection.invoke("RequestRoomList");
-        } catch (err) {
-            console.error("RequestRoomList 실패:", err);
-        }
+            connection.on("RoomList", (rooms) => {
+                if (mounted) setRooms(rooms);
+            });
 
-        // 4️⃣ 재연결 시 RoomList 재호출
-        connection.onreconnected(async () => {
+            connection.on("RoomCreated", (roomId) => {
+                navigate(`/room/${roomId}`);
+            });
+
+            connection.on("JoinRoomSuccess", (roomId) => {
+                navigate(`/room/${roomId}`);
+            });
+
+            // 연결 상태 이벤트
+            connection.onclose(() => mounted && setConnected(false));
+            connection.onreconnecting(() => mounted && setConnected(false));
+            connection.onreconnected(() => mounted && setConnected(true));
+
+            // 연결
+            if (connection.state === "Disconnected") {
+                await connection.start();
+            }
+
             if (!mounted) return;
-            try { await connection.invoke("RequestRoomList"); }
-            catch (err) { console.error(err); }
-        });
-    };
+            setConnected(true);
 
-    setup();
+            await connection.invoke("EnterLobby");
+        };
 
-    return () => {
-        mounted = false;
-        connection.off("ReceiveMessage");
-        connection.off("RoomList");
-        connection.off("RoomCreated");
-        connection.off("JoinRoomSuccess");
-    };
-}, [navigate]);
+        setup().catch(console.error);
 
-
-
+        return () => {
+            mounted = false;
+            connection.off("ConnectedUser");
+            connection.off("ReceiveMessage");
+            connection.off("RoomList");
+            connection.off("RoomCreated");
+            connection.off("JoinRoomSuccess");
+        };
+    }, [navigate]);
 
     // 채팅
     const sendMessage = async () => {
@@ -179,8 +158,15 @@ useEffect(() => {
                         </button>
                     </div>
 
+                    <p className="text-sm text-gray-600 mb-2">
+                        로그인 ID : <span className="font-semibold">{myName || "로딩중..."}</span>
+                    </p>
+
                     <p className="text-sm mb-4">
-                        서버 연결 상태 : {connected ? "Connected" : "Disconnected"}
+                        서버 연결 상태 : 
+                        <span className={connected ? "text-green-600" : "text-red-600"}>
+                            {connected ? " Connected" : " Disconnected"}
+                        </span>
                     </p>
 
                     {/* 방 영역 ~ */}

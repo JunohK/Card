@@ -34,18 +34,24 @@ public class GameHub : Hub
         // ConnectionId <-> Player 바인딩
         _connService.Bind(Context.ConnectionId, nickname);
 
-        // 로비 접속 시 방 목록 전달
-        var rooms = _roomService.GetRooms()
-            .Select(r => new RoomSummaryDTO
-            {
-                RoomId = r.RoomId,
-                Title = r.Title,
-                PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password)
-            });
+        // 로그인 시 로비와 방에 아이디 정보 보내기
+        await Clients.Caller.SendAsync("ConnectedUser", nickname);
 
-        await Clients.Caller.SendAsync("RoomList", rooms);
+        // 로비 접속 시 방 목록 전달
+        await Clients.Caller.SendAsync(
+            "RoomList",
+            _roomService.GetRooms()
+                .Select(r => new RoomSummaryDTO
+                {
+                    RoomId = r.RoomId,
+                    Title = r.Title,
+                    PlayerCount = r.Players.Count,
+                    IsStarted = r.IsStarted,
+                    IsLocked = !string.IsNullOrEmpty(r.Password)
+                })
+        );
+
+        // await Clients.Caller.SendAsync("RoomList", rooms);
 
         await base.OnConnectedAsync();
         // await Clients.Caller.SendAsync(
@@ -54,11 +60,61 @@ public class GameHub : Hub
         // );
     }
 
-    public override Task OnDisconnectedAsync(Exception? exception)
+    // 새로 고침 / 강제종료 대응
+    // public override Task OnDisconnectedAsync(Exception? exception)
+    // {
+    //     _connService.Unbind(Context.ConnectionId);
+    //     return base.OnDisconnectedAsync(exception);
+    // }
+    public override async Task OnDisconnectedAsync(Exception? exception)
     {
+        foreach(var room in _roomService.GetRooms())
+        {
+            var player = room.Players
+                .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+
+            if(player != null)
+            {
+                room.Players.Remove(player);
+            }
+        }
+
         _connService.Unbind(Context.ConnectionId);
-        return base.OnDisconnectedAsync(exception);
+
+        await Clients.All.SendAsync(
+            "RoomList",
+            _roomService.GetRooms().Select(r => new RoomSummaryDTO
+            {
+                RoomId = r.RoomId,
+                Title = r.Title,
+                PlayerCount = r.Players.Count,
+                IsStarted = r.IsStarted,
+                IsLocked = !string.IsNullOrEmpty(r.Password),
+                PlayerNames = r.Players.Select(p => p.Name).ToList()
+            })
+        );
+
+        // 로비 닉네임 표시
+        await Clients.Caller.SendAsync(
+            "ConnectedUser",
+            Context.User?.Identity?.Name ?? "Unknown"
+        );
+
+        await base.OnDisconnectedAsync(exception);
     }
+
+    /// <summary>
+    /// 로비에 아이디 표시 --> OnConnectedAsync에서 실행 ( 추후 삭제 )
+    /// </summary>
+    // public Task RequestMyInfo()
+    // {
+    //     Console.WriteLine("==== RequestMyInfo =====");
+    //     Console.WriteLine("IsAuthenticated = " + Context.User?.Identity?.IsAuthenticated);
+    //     Console.WriteLine("Name = " + Context.User?.Identity?.Name);
+
+    //     var name = Context.User?.Identity?.Name ?? "Unknown";
+    //     return Clients.Caller.SendAsync("ConnectedUser", name);
+    // }
 
     /// <summary>
     /// 방 생성
@@ -115,14 +171,27 @@ public class GameHub : Hub
         if (!string.IsNullOrEmpty(room.Password) && room.Password != password)
             throw new HubException("비밀번호가 틀렸습니다.");
 
-        // ← 여기에 Player 객체 추가
-        room.Players.Add(new Player
+        var nickname = Context.User!.Identity!.Name;
+
+        if(!room.Players.Any(p => p.PlayerId == Context.ConnectionId))
         {
-            PlayerId = Context.ConnectionId,
-            Name = Context.User?.Identity?.Name ?? "Unknown"
-        });
+            room.Players.Add(new Player
+            {
+                PlayerId = Context.ConnectionId,
+                Name = nickname
+            });
+        }
+
+        // player 객체 추가
+        // room.Players.Add(new Player
+        // {
+        //     PlayerId = Context.ConnectionId,
+        //     Name = Context.User?.Identity?.Name ?? "Unknown"
+        // });
 
         await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
+
+        await Clients.Caller.SendAsync("JoinRoomSuccess", roomId);
 
         await Clients.All.SendAsync(
             "RoomList",
@@ -146,6 +215,16 @@ public class GameHub : Hub
     /// </summary>
     public async Task LeaveRoom(string roomId)
     {
+        var room = _roomService.GetRoom(roomId);
+        if(room == null)
+            return;
+
+        var player = room.Players
+            .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+
+        if(player != null)
+            room.Players.Remove(player);
+
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
 
         await Clients.All.SendAsync(
@@ -154,16 +233,43 @@ public class GameHub : Hub
             {
                 RoomId = r.RoomId,
                 PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted
+                IsStarted = r.IsStarted,
+                IsLocked = !string.IsNullOrEmpty(r.Password),
+                PlayerNames = r.Players.Select(p => p.Name).ToList()
             })
         );
     }
 
     /// <summary>
-    /// 로비 입장 시 방 목록 불러오기 -- 일단 미사용
+    /// 로비 입장 시 방 목록 불러오기
     /// </summary>
     public async Task RequestRoomList()
     {
+        await Clients.Caller.SendAsync(
+            "RoomList",
+            _roomService.GetRooms().Select(r => new RoomSummaryDTO
+            {
+                RoomId = r.RoomId,
+                Title = r.Title,
+                PlayerCount = r.Players.Count,
+                IsStarted = r.IsStarted,
+                IsLocked = !string.IsNullOrEmpty(r.Password),
+                PlayerNames = r.Players.Select(p => p.Name).ToList()
+            })
+        );
+    }
+
+    /// <summary>
+    /// 로비 입장 시 새로고침
+    /// </summary>
+    public async Task EnterLobby()
+    {
+        var name = Context.User?.Identity?.Name ?? "Unknown";
+
+        // 내 정보
+        await Clients.Caller.SendAsync("ConnectedUser", name);
+
+        // 방 목록
         await Clients.Caller.SendAsync(
             "RoomList",
             _roomService.GetRooms().Select(r => new RoomSummaryDTO

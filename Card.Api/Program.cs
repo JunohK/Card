@@ -15,7 +15,7 @@ var builder = WebApplication.CreateBuilder(args);
 // JWT 설정 (Issuer / Key 통일)
 // =================================
 var jwtKey = builder.Configuration["Jwt:Key"]
-             ?? "DEV_SECRET_KEY_13579";
+             ?? "Junoh_Card_Key";
 
 var jwtIssuer = builder.Configuration["Jwt:Issuer"]
                 ?? "CardGameServer";
@@ -40,7 +40,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(jwtKey)
             ),
-            NameClaimType = ClaimTypes.NameIdentifier
+            NameClaimType = ClaimTypes.Name
         };
 
         // ⭐⭐⭐ SignalR JWT 처리 핵심
