@@ -14,22 +14,17 @@ var builder = WebApplication.CreateBuilder(args);
 // =================================
 // JWT 설정 (Issuer / Key 통일)
 // =================================
-var jwtKey = builder.Configuration["Jwt:Key"]
-             ?? "Junoh_Card_Key";
-
-var jwtIssuer = builder.Configuration["Jwt:Issuer"]
-                ?? "CardGameServer";
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "Junoh_Card_Key";
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "CardGameServer";
 
 // ---------------------------------
 // Services
 // ---------------------------------
-
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.SaveToken = true; 
         options.RequireHttpsMetadata = false;
-
         options.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -37,89 +32,62 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidateLifetime = true,
             ValidateIssuerSigningKey = true,
             ValidIssuer = jwtIssuer,
-            IssuerSigningKey = new SymmetricSecurityKey(
-                Encoding.UTF8.GetBytes(jwtKey)
-            ),
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             NameClaimType = ClaimTypes.Name
         };
 
-        // ⭐⭐⭐ SignalR JWT 처리 핵심
         options.Events = new JwtBearerEvents
         {
             OnMessageReceived = context =>
             {
                 var accessToken = context.Request.Query["access_token"];
                 var path = context.HttpContext.Request.Path;
-
-                Console.WriteLine($"[SignalR] Path: {path}");
-                Console.WriteLine($"[SignalR] Token: {accessToken}");
-
-                if (!string.IsNullOrEmpty(accessToken) &&
-                    path.StartsWithSegments("/gamehub"))
+                if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/gamehub"))
                 {
                     context.Token = accessToken;
                 }
-
                 return Task.CompletedTask;
             }
         };
     });
 
 builder.Services.AddAuthorization();
-
-// Controllers
 builder.Services.AddControllers();
-
-// Swagger
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-// CORS
+// ⭐ [CORS 설정 수정] ngrok 주소 대응을 위해 모든 오리진 허용
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowFrontend", policy =>
     {
         policy
-            .WithOrigins("http://localhost:5173")
+            .SetIsOriginAllowed(_ => true) // 어떤 도메인(ngrok 등)에서 와도 허용
             .AllowAnyHeader()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowCredentials(); // SignalR 인증을 위해 필수
     });
 });
 
-// DB
-builder.Services.AddDbContext<GameDbContext>(options =>
-{
-    options.UseSqlite("Data Source=cardgame.db");
-});
-
-// SignalR
+// DB / SignalR / Services 동일
+builder.Services.AddDbContext<GameDbContext>(options => options.UseSqlite("Data Source=cardgame.db"));
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
-
-// Services
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<PasswordHashService>();
 builder.Services.AddSingleton<GameRoomService>();
 builder.Services.AddSingleton<PlayerConnectionService>();
 
-// ---------------------------------
-// Build
-// ---------------------------------
 var app = builder.Build();
 
-// ---------------------------------
-// DB Seed
-// ---------------------------------
+// DB Seed 동일
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<GameDbContext>();
     DbInitializer.Seed(db);
 }
 
-// ---------------------------------
 // Middleware
-// ---------------------------------
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -127,19 +95,11 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("AllowFrontend");
-
 app.UseRouting();
-
 app.UseAuthentication();
 app.UseAuthorization();
 
-// ---------------------------------
-// Endpoints
-// ---------------------------------
 app.MapControllers();
 app.MapHub<GameHub>("/gamehub");
 
-// ---------------------------------
-// Run
-// ---------------------------------
 app.Run();

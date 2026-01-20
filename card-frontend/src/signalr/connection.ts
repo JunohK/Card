@@ -1,8 +1,12 @@
 import { HubConnectionBuilder, LogLevel } from "@microsoft/signalr";
 import { authStorage } from "../auth/authStorage";
 
+// ⭐ [주소 수정] ngrok 터미널에 표시된 https 주소를 복사해서 여기에 넣으세요.
+// 주의: 주소 끝에 /gamehub를 반드시 붙여야 합니다.
+const NGROK_URL = "https://astrally-propitiative-donette.ngrok-free.dev";
+
 export const connection = new HubConnectionBuilder()
-    .withUrl("http://localhost:5101/gamehub", {
+    .withUrl(NGROK_URL, {
         accessTokenFactory: () => authStorage.getToken() ?? ""
     })
     .withAutomaticReconnect()
@@ -13,7 +17,6 @@ export const connection = new HubConnectionBuilder()
  * 안전하게 연결을 시작하고 보장하는 함수
  */
 export const ensureConnection = async (): Promise<boolean> => {
-    // Enum 대신 문자열 값을 직접 체크하여 타입 에러 방지
     const currentState = connection.state;
 
     if (currentState === "Connected") {
@@ -31,7 +34,7 @@ export const ensureConnection = async (): Promise<boolean> => {
 
     try {
         await connection.start();
-        console.log("SignalR 연결 성공");
+        console.log("SignalR 연결 성공 (via ngrok)");
         return true;
     } catch (err) {
         console.error("SignalR 연결 시도 중 에러:", err);
