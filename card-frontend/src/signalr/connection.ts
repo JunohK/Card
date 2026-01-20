@@ -3,7 +3,7 @@ import { authStorage } from "../auth/authStorage";
 
 // ⭐ [주소 수정] ngrok 터미널에 표시된 https 주소를 복사해서 여기에 넣으세요.
 // 주의: 주소 끝에 /gamehub를 반드시 붙여야 합니다.
-const NGROK_URL = "https://astrally-propitiative-donette.ngrok-free.dev";
+const NGROK_URL = "https://astrally-propitiative-donette.ngrok-free.dev/gamehub";
 
 export const connection = new HubConnectionBuilder()
     .withUrl(NGROK_URL, {
