@@ -11,433 +11,203 @@ public class GameHub : Hub
     private readonly GameRoomService _roomService;
     private readonly PlayerConnectionService _connService;
 
-    public GameHub(
-        GameRoomService roomService,
-        PlayerConnectionService connService)
+    public GameHub(GameRoomService roomService, PlayerConnectionService connService)
     {
         _roomService = roomService;
         _connService = connService;
     }
 
-    public override async Task OnConnectedAsync()
+    // ✅ 로비 진입 (닉네임 전송 및 목록 갱신)
+    public async Task EnterLobby()
     {
         var nickname = Context.User?.Identity?.Name ?? "Unknown";
-        var userId = Context.UserIdentifier;
-
-        Console.WriteLine($"Connected : {nickname} ({userId})");
-
-        Console.WriteLine("SignalR Connected");
-        Console.WriteLine("User null? " + (Context.User == null));
-        Console.WriteLine("Identity null? " + (Context.User?.Identity == null));
-        Console.WriteLine("Name: " + Context.User?.Identity?.Name);
-
-        // ConnectionId <-> Player 바인딩
-        _connService.Bind(Context.ConnectionId, nickname);
-
-        // 로그인 시 로비와 방에 아이디 정보 보내기
         await Clients.Caller.SendAsync("ConnectedUser", nickname);
-
-        // 로비 접속 시 방 목록 전달
-        await Clients.Caller.SendAsync(
-            "RoomList",
-            _roomService.GetRooms()
-                .Select(r => new RoomSummaryDTO
-                {
-                    RoomId = r.RoomId,
-                    Title = r.Title,
-                    PlayerCount = r.Players.Count,
-                    IsStarted = r.IsStarted,
-                    IsLocked = !string.IsNullOrEmpty(r.Password)
-                })
-        );
-
-        // await Clients.Caller.SendAsync("RoomList", rooms);
-
-        await base.OnConnectedAsync();
-        // await Clients.Caller.SendAsync(
-        //     "RoomList",
-        //     _roomService.GetRooms()
-        // );
+        await SendRoomListToAll();
     }
 
-    // 새로 고침 / 강제종료 대응
-    // public override Task OnDisconnectedAsync(Exception? exception)
-    // {
-    //     _connService.Unbind(Context.ConnectionId);
-    //     return base.OnDisconnectedAsync(exception);
-    // }
-    public override async Task OnDisconnectedAsync(Exception? exception)
-    {
-        foreach(var room in _roomService.GetRooms())
-        {
-            var player = room.Players
-                .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
-
-            if(player != null)
-            {
-                room.Players.Remove(player);
-            }
-        }
-
-        _connService.Unbind(Context.ConnectionId);
-
-        await Clients.All.SendAsync(
-            "RoomList",
-            _roomService.GetRooms().Select(r => new RoomSummaryDTO
-            {
-                RoomId = r.RoomId,
-                Title = r.Title,
-                PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password),
-                PlayerNames = r.Players.Select(p => p.Name).ToList()
-            })
-        );
-
-        // 로비 닉네임 표시
-        await Clients.Caller.SendAsync(
-            "ConnectedUser",
-            Context.User?.Identity?.Name ?? "Unknown"
-        );
-
-        await base.OnDisconnectedAsync(exception);
-    }
-
-    /// <summary>
-    /// 로비에 아이디 표시 --> OnConnectedAsync에서 실행 ( 추후 삭제 )
-    /// </summary>
-    // public Task RequestMyInfo()
-    // {
-    //     Console.WriteLine("==== RequestMyInfo =====");
-    //     Console.WriteLine("IsAuthenticated = " + Context.User?.Identity?.IsAuthenticated);
-    //     Console.WriteLine("Name = " + Context.User?.Identity?.Name);
-
-    //     var name = Context.User?.Identity?.Name ?? "Unknown";
-    //     return Clients.Caller.SendAsync("ConnectedUser", name);
-    // }
-
-    /// <summary>
-    /// 방 생성
-    /// </summary>
+    // ✅ 방 생성
     public async Task CreateRoom(string title, string? password)
     {
-        try
-        {
-            Console.WriteLine("CreateRoom called");
+        var nickname = Context.User?.Identity?.Name ?? "Unknown";
+        var room = _roomService.CreateRoom(nickname, title, password);
+        
+        // 방 생성 직후 입장 처리
+        _roomService.JoinRoom(room.RoomId, Context.ConnectionId, nickname, password);
 
-            var nickname = Context.User!.Identity!.Name!;
-            Console.WriteLine("nickname: " + nickname);
-
-            var room = _roomService.CreateRoom(nickname, title, password);
-            Console.WriteLine("room created: " + room.RoomId);
-
-            await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomId);
-            Console.WriteLine("added to group");
-
-            await Clients.All.SendAsync(
-                "RoomList",
-                _roomService.GetRooms().Select(r => new RoomSummaryDTO
-                {
-                    RoomId = r.RoomId,
-                    Title = r.Title,
-                    PlayerCount = r.Players.Count,
-                    IsStarted = r.IsStarted,
-                    IsLocked = !string.IsNullOrEmpty(r.Password),
-                    PlayerNames = r.Players.Select(p => p.Name).ToList()
-                })
-            );
-
-            await Clients.Caller.SendAsync("RoomCreated", room.RoomId);
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine("🔥 CreateRoom ERROR");
-            Console.WriteLine(ex.ToString());
-            throw; // ← 이거 있어야 클라이언트에 에러 전달됨
-        }
+        await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomId);
+        await Clients.Caller.SendAsync("RoomCreated", room.RoomId);
+        await SendRoomListToAll();
     }
 
-
-    /// <summary>
-    /// 방 입장
-    /// </summary>
+    // ✅ [문제의 부분 수정] 방 입장
     public async Task JoinRoom(string roomId, string? password)
     {
+        // 1. 방 정보 확인
         var room = _roomService.GetRoom(roomId);
+        if (room == null) throw new HubException("방을 찾을 수 없습니다.");
 
-        if (room == null)
-            throw new HubException("방이 존재하지 않습니다.");
+        // 2. 닉네임 추출 (이 부분이 서비스 로직과 맞아야 합니다)
+        var nickname = Context.User?.Identity?.Name ?? "Unknown";
 
-        if (!string.IsNullOrEmpty(room.Password) && room.Password != password)
-            throw new HubException("비밀번호가 틀렸습니다.");
+        // 3. 서비스 호출 (비밀번호가 틀리거나 인원이 꽉 차면 여기서 예외가 발생할 수 있음)
+        // 기존에 잘 되던 서비스 코드를 그대로 타게 합니다.
+        var updatedRoom = _roomService.JoinRoom(roomId, Context.ConnectionId, nickname, password);
 
-        var nickname = Context.User!.Identity!.Name;
-
-        if(!room.Players.Any(p => p.PlayerId == Context.ConnectionId))
+        if (updatedRoom != null)
         {
-            room.Players.Add(new Player
-            {
-                PlayerId = Context.ConnectionId,
-                Name = nickname
-            });
+            await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
+            await Clients.Caller.SendAsync("JoinRoomSuccess", roomId);
+            await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+            await SendRoomListToAll();
         }
-
-        // player 객체 추가
-        // room.Players.Add(new Player
-        // {
-        //     PlayerId = Context.ConnectionId,
-        //     Name = Context.User?.Identity?.Name ?? "Unknown"
-        // });
-
-        await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
-
-        await Clients.Caller.SendAsync("JoinRoomSuccess", roomId);
-
-        await Clients.All.SendAsync(
-            "RoomList",
-            _roomService.GetRooms().Select(r => new RoomSummaryDTO
-            {
-                RoomId = r.RoomId,
-                Title = r.Title,
-                PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password),
-                PlayerNames = r.Players.Select(p => p.Name).ToList()
-            })
-        );
-
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
     }
 
-
-    /// <summary>
-    /// 방 나가기
-    /// </summary>
+    // ✅ 방 나가기
     public async Task LeaveRoom(string roomId)
+    {
+        _roomService.LeaveRoom(roomId, Context.ConnectionId);
+        await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
+        
+        var room = _roomService.GetRoom(roomId);
+        if (room != null)
+            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+            
+        await SendRoomListToAll();
+    }
+
+    // ✅ [새로 추가한 기능] 게임 시작
+    public async Task StartGame(string roomId)
+    {
+        var room = _roomService.GetRoom(roomId);
+        // 방장인지 확인 후 시작
+        if (room != null && room.HostPlayerId == Context.ConnectionId)
+        {
+            _roomService.StartGame(roomId);
+            
+            // 모든 클라이언트에게 방 상태(isStarted=true) 업데이트
+            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+            // 모든 클라이언트에게 게임 화면으로 이동하라는 전용 신호 전송
+            await Clients.Group(roomId).SendAsync("GameStarted", room);
+        }
+    }
+
+    public async Task<object> GetRoom(string roomId)
     {
         var room = _roomService.GetRoom(roomId);
         if(room == null)
-            return;
-
-        var player = room.Players
-            .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
-
-        if(player != null)
-            room.Players.Remove(player);
-
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
-
-        await Clients.All.SendAsync(
-            "RoomList",
-            _roomService.GetRooms().Select(r => new RoomSummaryDTO
-            {
-                RoomId = r.RoomId,
-                PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password),
-                PlayerNames = r.Players.Select(p => p.Name).ToList()
-            })
-        );
-    }
-
-    /// <summary>
-    /// 로비 입장 시 방 목록 불러오기
-    /// </summary>
-    public async Task RequestRoomList()
-    {
-        await Clients.Caller.SendAsync(
-            "RoomList",
-            _roomService.GetRooms().Select(r => new RoomSummaryDTO
-            {
-                RoomId = r.RoomId,
-                Title = r.Title,
-                PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password),
-                PlayerNames = r.Players.Select(p => p.Name).ToList()
-            })
-        );
-    }
-
-    /// <summary>
-    /// 로비 입장 시 새로고침
-    /// </summary>
-    public async Task EnterLobby()
-    {
-        var name = Context.User?.Identity?.Name ?? "Unknown";
-
-        // 내 정보
-        await Clients.Caller.SendAsync("ConnectedUser", name);
-
-        // 방 목록
-        await Clients.Caller.SendAsync(
-            "RoomList",
-            _roomService.GetRooms().Select(r => new RoomSummaryDTO
-            {
-                RoomId = r.RoomId,
-                Title = r.Title,
-                PlayerCount = r.Players.Count,
-                IsStarted = r.IsStarted,
-                IsLocked = !string.IsNullOrEmpty(r.Password),
-                PlayerNames = r.Players.Select(p => p.Name).ToList()
-            })
-        );
-    }
-
-    /// <summary>
-    /// 게임 시작 (호스트만)
-    /// </summary>
-    public async Task StartGame(
-        string roomId, 
-        int totalRounds // 1,5,10 라운드
-        )
-    {
-        var room = _roomService.GetRoom(roomId);
-        if (room == null || room.IsStarted)
-            return;
-
-        room.TotalRounds = totalRounds;
-
-        _roomService.StartGame(roomId);
-
-        await Clients.Group(roomId).SendAsync("GameStarted", room);
-    }
-
-    /// <summary>
-    /// 내 턴 행동
-    /// </summary>
-    public async Task ActingMyTurn(
-        string roomId,
-        string playerId,
-        TurnActionType actionType,
-        List<int>? discardIndexes = null)
-    {
-        var room = _roomService.GetRoom(roomId);
-        if (room == null || room.IsFinished)
-            return;
-
-        if (room.CurrentTurnPlayerId != playerId)
-            return;
-
-        _roomService.ActingMyTurn(room, playerId, actionType, discardIndexes);
-
-        if (room.IsFinished)
         {
-            // 현재 라운드 종료 알림
-            await Clients.Group(roomId)
-                .SendAsync("RoundFinished", room);
-
-            // 다음 라운드 가능 여부
-            if (_roomService.CanStartNextRound(room))
-            {
-                _roomService.StartNextRound(room);
-
-                await Clients.Group(roomId)
-                    .SendAsync("NextRoundStarted", room);
-            } 
-            else
-            {
-                // 매치 최종 승자 계산
-                var finalWinner = room.Players
-                    .OrderByDescending(p => p.Score)
-                    .First();
-
-                await Clients.Group(roomId)
-                    .SendAsync("MatchFinished",finalWinner);
-            }
-
-            return;
+            throw new HubException("방을 찾을 수 없습니다.");
         }
 
-        // 턴 정상 진행 알림
-        await Clients.Group(roomId)
-            .SendAsync("RoomUpdated", room);
-
-        // 게임 종료 여부 체크
-        if (room.IsFinished)
+        // 클라이언트가 기대하는 GameState 구조로 변환
+        return new
         {
-            await Clients.Group(roomId).SendAsync(
-                "GameFinished",
-                room.WinnerPlayerId
-            );
-            return;
-        }
-
-        // 턴 변경 알림
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+            RoomId = room.RoomId,
+            Title = room.Title,
+            Players = room.Players.Select(p => new
+            {
+                PlayerId = p.PlayerId,
+                Name = p.Name,
+                Hand = p.Hand ?? new List<PlayingCard>()
+            }),
+            CurrentTurnPlayerId = room.CurrentTurnPlayerId,
+            LastDiscardedCard = room.LastDiscardedCard,
+            DeckCount = room.DeckCount,
+            IsStarted = room.IsStarted,
+            IsGameOver = room.IsGameOver,
+            WinnerName = room.WinnerName,
+            HostPlayerId = room.HostPlayerId
+        };
     }
 
-    /// <summary>
-    /// 상대 턴 인터럽트 행동
-    /// </summary>
-    public async Task InterruptAction(
-        string roomId,
-        string playerId,
-        List<int> handIndexes)
+    public async Task PlayCard(string roomId, PlayingCard card)
+    {
+        var updatedRoom = _roomService.PlayCard(roomId, Context.ConnectionId, card);
+        if (updatedRoom != null)
+        {
+            await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+        }
+    }
+
+    public async Task DrawCard(string roomId)
+    {
+        var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
+        if (updatedRoom != null)
+        {
+            await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+        }
+    }
+
+    // DrawCard(카드 뽑기) 메서드도 미리 추가해두세요 (에러 방지)
+    // [Authorize]
+    // public async Task DrawCard(string roomId)
+    // {
+    //     var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
+    //     if (updatedRoom != null)
+    //     {
+    //         await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+    //     }
+    // }
+    
+    // 승리 로직 계산
+    public async Task DeclareWin(string roomId)
     {
         var room = _roomService.GetRoom(roomId);
-        if (room == null || room.IsFinished)
-            return;
+        if (room == null) return;
 
-        var success = _roomService.TryInterrupt(
-            room,
-            playerId,
-            handIndexes
-        );
+        var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+        if (player == null) return;
 
-        if (!success)
-            return;
-
-        if (room.IsFinished)
+        try 
         {
-            await Clients.Group(roomId)
-                .SendAsync("RoundFinished", room);
-
-            if (_roomService.CanStartNextRound(room))
-            {
-                _roomService.StartNextRound(room);
-
-                await Clients.Group(roomId)
-                    .SendAsync("NextRoundStarted", room);
-            }
-            else
-            {
-                var finalWinner = room.Players
-                    .OrderByDescending(p => p.Score)
-                    .First();
-
-                await Clients.Group(roomId)
-                    .SendAsync("MatchFinished", finalWinner);
-            }
-
-            return;
+            // Hub에서 호출할 때는 일반적인 Win 선언으로 처리
+            _roomService.DeclareWin(room, player, WinReason.ManualDeclare);
+            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
         }
-
-        await Clients.Group(roomId)
-            .SendAsync("RoomUpdated", room);
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
+        }
     }
-
-    // 메세지(채팅) 전송 기능 - 클라이언트에서 메세지 보내면 모든 클라이언트에게 전송
+    
+    // 기권
+    public async Task GiveUp(string roomId)
+        {
+            _roomService.GiveUpGame(roomId, Context.ConnectionId);
+            var room = _roomService.GetRoom(roomId);
+            
+            // 방에 있는 모든 사람에게 업데이트된 정보(IsFinished=true) 전송
+            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        }
+    // ✅ 채팅
     public async Task SendChatMessage(string message)
     {
         var nickname = Context.User?.Identity?.Name ?? "Unknown";
         await Clients.All.SendAsync("ReceiveMessage", nickname, message);
     }
 
-    // SignalR 인증 연동(JWT)
-    // public override async Task OnConnectedAsync()
-    // {
-    //     var userId = Context.UserIdentifier;
-    //     var nickname = Context.User?.Identity?.Name;
+    private async Task SendRoomListToAll()
+    {
+        var roomList = _roomService.GetRooms().Select(r => new {
+            r.RoomId,
+            r.Title,
+            PlayerCount = r.Players.Count,
+            r.IsStarted,
+            IsLocked = !string.IsNullOrEmpty(r.Password)
+        });
+        await Clients.All.SendAsync("RoomList", roomList);
+    }
 
-    //     Console.WriteLine($"Connected : {nickname} ({userId})");
-
-    //     await base.OnConnectedAsync();
-    // }
-
-    public async Task SendSystemMessage(string message)
+    public override async Task OnConnectedAsync()
     {
         var nickname = Context.User?.Identity?.Name ?? "Unknown";
-        await Clients.All.SendAsync("ReceiveMessage", nickname, message);
+        _connService.Bind(Context.ConnectionId, nickname);
+        await base.OnConnectedAsync();
+    }
+
+    public override async Task OnDisconnectedAsync(Exception? exception)
+    {
+        _connService.Unbind(Context.ConnectionId);
+        await base.OnDisconnectedAsync(exception);
     }
 }

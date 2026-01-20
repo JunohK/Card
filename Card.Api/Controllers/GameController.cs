@@ -8,13 +8,6 @@ namespace Card.Api.Controllers;
 [Route("api/[controller]")]
 public class GameController : ControllerBase
 {
-    // 서버 연결 확인 코드
-    // [HttpGet("ping")]
-    // public IActionResult Ping()
-    // {
-    //     return Ok("Server Alive");
-    // }
-
     private readonly GameRoomService _gameRoomService;
 
     public GameController(GameRoomService gameRoomService)
@@ -26,11 +19,8 @@ public class GameController : ControllerBase
     [HttpPost("create")]
     public ActionResult<GameRoom> CreateRoom([FromBody] CreateRoomRequest request)
     {
-        if(string.IsNullOrWhiteSpace(request.PlayerName))
-            return BadRequest("PlayerName is required");
-
-        if(string.IsNullOrWhiteSpace(request.Title))
-            return BadRequest("Title is required");
+        if(string.IsNullOrWhiteSpace(request.PlayerName) || string.IsNullOrWhiteSpace(request.Title))
+            return BadRequest("PlayerName and Title are required");
 
         var room = _gameRoomService.CreateRoom(
             request.PlayerName,
@@ -40,27 +30,35 @@ public class GameController : ControllerBase
         return Ok(room);
     }
 
-    // 방 입장
-    [HttpPost("Join")]
+    // 방 입장 (HTTP 방식)
+    [HttpPost("join")]
     public ActionResult<GameRoom> JoinRoom([FromBody] JoinRoomRequest request)
     {
-        var room = _gameRoomService.JoinRoom(request.RoomId, request.PlayerName);
+        // Service의 JoinRoom은 이제 닉네임 중복 시 기존 유저를 지우고 새로 추가하므로 
+        // 결과가 null이 나오는 경우는 방이 없을 때뿐입니다.
+        var room = _gameRoomService.JoinRoom(request.RoomId, "HTTP_CLIENT", request.PlayerName, request.Password);
 
         if (room == null)
-            return NotFound("Room not fount or duplicate player name");
+            return NotFound("Room not found");
         
         return Ok(room);
     }
 
-    // 게임 상태 조회
+    // 특정 방 상세 조회
     [HttpGet("{roomId}")]
     public ActionResult<GameRoom> GetRoom(string roomId)
     {
         var room = _gameRoomService.GetRoom(roomId);
-
         if(room == null)
-            return NotFound("Room not fount");
+            return NotFound("Room not found");
 
         return Ok(room);
+    }
+
+    // 전체 방 목록 조회
+    [HttpGet("rooms")]
+    public ActionResult<IEnumerable<GameRoom>> GetRooms()
+    {
+        return Ok(_gameRoomService.GetRooms());
     }
 }

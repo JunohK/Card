@@ -1,0 +1,250 @@
+.game-container {
+  height: 100vh;
+  width: 100vw;
+  background-color: #0f2e1b;
+  color: white;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 상단 정보바 */
+.game-header {
+  height: 50px;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 100;
+}
+
+.header-left { display: flex; gap: 20px; font-size: 0.9rem; }
+.set-info { color: #f1c40f; font-weight: bold; }
+.player-scores { display: flex; gap: 15px; font-size: 0.8rem; }
+.my-score { color: #f1c40f; }
+
+/* 게임 테이블 영역 */
+.game-table-area {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  padding-bottom: 120px; /* 공간을 더 확보 */
+}
+
+.table-oval {
+  width: 85%;
+  height: 65%;
+  border: 10px solid #0d2b1a;
+  border-radius: 200px;
+  background: radial-gradient(circle, #1a472a 0%, #0a2414 100%);
+  position: relative;
+  box-shadow: inset 0 0 50px rgba(0,0,0,0.5);
+}
+
+.table-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  gap: 30px;
+}
+
+.player-box {
+  background: rgba(0,0,0,0.4);
+  padding: 8px;
+  border-radius: 10px;
+  text-align: center;
+  min-width: 85px;
+  transition: all 0.3s;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+
+.player-box.active-turn {
+  border-color: #f1c40f;
+  box-shadow: 0 0 15px #f1c40f;
+  background: rgba(241, 196, 15, 0.2);
+}
+
+.player-name { font-size: 0.75rem; margin-bottom: 5px; font-weight: bold; }
+.opponent-card-back {
+  width: 35px;
+  height: 50px;
+  background: #2c3e50;
+  border: 2px solid white;
+  border-radius: 4px;
+  margin: 0 auto;
+  line-height: 50px;
+  font-size: 0.8rem;
+}
+
+.card-ui {
+  width: 70px;
+  height: 100px;
+  background: white;
+  border-radius: 6px;
+  color: black;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  position: relative;
+}
+
+.card-ui.red { color: #e74c3c; }
+.card-ui.black { color: #2c3e50; }
+.card-ui .rank { font-size: 0.9rem; font-weight: bold; }
+.card-ui .suit { font-size: 1.8rem; text-align: center; margin: auto; }
+.card-value-hint { position: absolute; bottom: 2px; right: 4px; font-size: 0.6rem; opacity: 0.5; }
+
+.card-ui.deck { background: #064e3b; color: white; border: 1px solid white; cursor: default; }
+.card-ui.deck.can-action { cursor: pointer; border: 2px solid #f1c40f; }
+.card-ui.deck .count { font-size: 1.5rem; margin: auto; }
+.card-ui.deck .label { font-size: 0.6rem; text-align: center; }
+.pick-hint { position: absolute; bottom: 5px; width: 100%; text-align: center; color: #f1c40f; font-size: 0.6rem; font-weight: bold; }
+
+/* 하단 내 핸드 영역 수정 */
+.hand-area {
+  position: absolute;
+  bottom: 30px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 200;
+  width: 100%;
+}
+
+/* 안내 문구와 승리 버튼 컨테이너 (높이 상향 조절) */
+.turn-status-container {
+  margin-bottom: 50px; /* 카드 뭉치로부터 위로 50px 띄움 */
+}
+
+.turn-status-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 10px 25px;
+  border-radius: 40px;
+  border: 1px solid rgba(241, 196, 15, 0.3);
+  box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+
+.status-text {
+  font-size: 0.95rem;
+  color: #ccc;
+  white-space: nowrap;
+}
+
+.status-text.active-text {
+  color: #f1c40f;
+  font-weight: bold;
+  text-shadow: 0 0 8px rgba(241, 196, 15, 0.4);
+}
+
+.win-btn {
+  background: #f1c40f;
+  color: #000;
+  border: none;
+  padding: 8px 20px;
+  border-radius: 20px;
+  font-weight: bold;
+  font-size: 0.9rem;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(241, 196, 15, 0.4);
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.win-btn:hover {
+  background: #f39c12;
+  transform: translateY(-2px) scale(1.05);
+}
+
+.cards-in-hand { display: flex; gap: -20px; }
+.my-card { margin-left: -25px; transition: transform 0.2s; }
+.my-card:first-child { margin-left: 0; }
+.my-card:hover { transform: translateY(-40px) !important; z-index: 10; }
+
+.modal-overlay {
+  position: fixed; top:0; left:0; width:100%; height:100%;
+  background: rgba(0,0,0,0.8); display: flex; justify-content: center; align-items: center; z-index: 1000;
+}
+.modal-content {
+  background: white; color: black; padding: 30px; border-radius: 15px; text-align: center;
+}
+
+/* 스코어보드 전용 모달 스타일 */
+.modal-content.scoreboard {
+    background: #1a1a1a;
+    color: white;
+    min-width: 400px;
+    border: 2px solid #f1c40f;
+    box-shadow: 0 0 30px rgba(241, 196, 15, 0.3);
+    padding: 40px;
+}
+
+.result-title {
+    color: #f1c40f;
+    letter-spacing: 4px;
+    margin-bottom: 10px;
+}
+
+.winner-announce {
+    font-size: 1.2rem;
+    margin-bottom: 30px;
+    border-bottom: 1px solid #333;
+    padding-bottom: 15px;
+}
+
+.score-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 30px;
+}
+
+.score-table th {
+    color: #888;
+    font-size: 0.8rem;
+    padding: 10px;
+    border-bottom: 2px solid #333;
+}
+
+.score-table td {
+    padding: 15px 10px;
+    border-bottom: 1px solid #222;
+}
+
+.highlight-row {
+    background: rgba(241, 196, 15, 0.1);
+}
+
+.score-val {
+    font-weight: bold;
+    color: #f1c40f;
+}
+
+/* 확인 버튼 */
+.confirm-btn {
+    background: #f1c40f;
+    color: black;
+    border: none;
+    padding: 12px 40px;
+    font-weight: bold;
+    font-size: 1.1rem;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.confirm-btn:hover {
+    background: #f39c12;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+}

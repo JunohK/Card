@@ -4,6 +4,7 @@ import LoginPage from "../pages/LoginPage";
 import LobbyPage from "../pages/LobbyPage";
 import SignupPage from "../pages/SignupPage";
 import RoomPage from "../pages/RoomPage";
+import GamePage from "../pages/GamePage"; // ✅ 추가
 import { useAuth } from "../auth/authContext";
 
 export default function AppRouter() {
@@ -23,10 +24,16 @@ export default function AppRouter() {
                     element={isAuth ? <LobbyPage /> : <Navigate to="/login" replace />}
                 />
 
-                {/* ✅ 방 페이지 (로그인 필수) */}
+                {/* ✅ 방 대기 페이지 */}
                 <Route
                     path="/room/:roomId"
                     element={isAuth ? <RoomPage /> : <Navigate to= "/login" replace />}
+                />
+
+                {/* ✅ 실제 게임 화면 페이지 추가 */}
+                <Route
+                    path="/game/:roomId"
+                    element={isAuth ? <GamePage /> : <Navigate to= "/login" replace />}
                 />
 
                 {/* fallback */}

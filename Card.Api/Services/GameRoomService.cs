@@ -4,504 +4,480 @@ using System.Collections.Concurrent;
 
 namespace Card.Api.Services;
 
-/// <summary>
-/// 게임 방 및 게임 상태 관리 서비스
-/// </summary>
 public class GameRoomService
 {
-    // 🔑 멀티스레드 안전한 방 저장소
+    // 🔑 멀티스레드 환경에서 안전한 방 저장소
     private readonly ConcurrentDictionary<string, GameRoom> _rooms = new();
 
     /// <summary>
-    /// 방 생성
+    /// 방 생성: 방 객체만 생성하고 저장소에 등록합니다.
     /// </summary>
-    public GameRoom CreateRoom(
-        string playerName,
-        string title,
-        string? password
-    )
+    public GameRoom CreateRoom(string playerName, string title, string? password)
     {
+        var roomId = Guid.NewGuid().ToString().Substring(0, 8);
         var room = new GameRoom
         {
+            RoomId = roomId,
             Title = title,
-            Password = string.IsNullOrWhiteSpace(password) ? null : password
+            Password = string.IsNullOrWhiteSpace(password) ? null : password,
+            Players = new List<Player>(), // 빈 상태로 생성하여 JoinRoom에서 처리
+            IsStarted = false,
+            CreatedAt = DateTime.UtcNow
         };
 
-        var host = new Player
-        {
-            Name = playerName
-        };
-
-        room.Players.Add(host);
-
-        _rooms[room.RoomId] = room;
+        _rooms.TryAdd(roomId, room);
         return room;
     }
 
     /// <summary>
-    /// 방 입장
+    /// 방 입장: 중복 입장을 방지하기 위해 기존 유령 세션을 제거한 후 추가합니다.
     /// </summary>
-    public GameRoom? JoinRoom(
-        string roomId,
-        string playerName,
-        string? password = null)
+    public GameRoom? JoinRoom(string roomId, string playerId, string playerName, string? password = null)
     {
         if (!_rooms.TryGetValue(roomId, out var room))
             return null;
 
-        // 비밀번호 검사
-        if (!string.IsNullOrWhiteSpace(room.Password))
+        lock (room) // 여러 명이 동시에 입장할 때 리스트 꼬임 방지
         {
-            if(room.Password != password)
-                throw new Exception("비밀번호가 틀렸습니다.");
+            var nickname = playerName.Trim();
+
+            // [핵심 해결] 기존에 같은 PlayerId 혹은 같은 이름을 가진 플레이어가 있다면 모두 제거
+            room.Players.RemoveAll(p => p.PlayerId == playerId || p.Name == nickname);
+
+            // 비밀번호 체크
+            if (!string.IsNullOrWhiteSpace(room.Password) && room.Players.Count > 0)
+            {
+                if (room.Password != password)
+                {
+                    throw new Exception("비밀번호가 틀렸습니다.");
+                }
+            }
+
+            // 인원 제한 체크
+            if (room.Players.Count >= 7)
+                throw new Exception("방 인원이 가득 찼습니다.");
+
+            // 새로운 플레이어 객체 생성 및 추가
+            var newPlayer = new Player
+            {
+                PlayerId = playerId,
+                Name = nickname,
+                Hand = new List<PlayingCard>()
+            };
+            room.Players.Add(newPlayer);
+
+            // 첫 번째 입장객(또는 방장)에게 권한 부여
+            if (string.IsNullOrEmpty(room.HostPlayerId) || room.Players.Count == 1)
+            {
+                room.HostPlayerId = playerId;
+            }
         }
-
-        // 최대 7명 제한
-        if (room.Players.Count >= 7)
-            return null;
-
-        // 중복 이름 방지
-        if (room.Players.Any(p => p.Name == playerName))
-            return null;
-
-        room.Players.Add(new Player
-        {
-            Name = playerName
-        });
 
         return room;
     }
 
     /// <summary>
-    /// 게임 시작
+    /// 방 나가기: 인원이 0명이 되면 방을 완전히 삭제합니다.
+    /// </summary>
+    public bool LeaveRoom(string roomId, string playerId)
+    {
+        if (!_rooms.TryGetValue(roomId, out var room)) return false;
+
+        lock (room)
+        {
+            room.Players.RemoveAll(p => p.PlayerId == playerId);
+
+            if (room.Players.Count == 0)
+            {
+                _rooms.TryRemove(roomId, out _);
+                return true; 
+            }
+
+            if (room.HostPlayerId == playerId && room.Players.Count > 0)
+            {
+                room.HostPlayerId = room.Players[0].PlayerId;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 게임 시작 로직
     /// </summary>
     public void StartGame(string roomId)
     {
-        if (!_rooms.TryGetValue(roomId, out var room))
-            return;
+        if (!_rooms.TryGetValue(roomId, out var room)) return;
+        if (room.IsStarted) return;
 
-        if (room.IsStarted)
-            return;
+        var newDeck = CreateNewDeck();
+        room.Deck = newDeck.OrderBy(a => Guid.NewGuid()).ToList(); // 셔플(섞기)
 
-        // 덱 생성 + 셔플
-        room.Deck = DeckFactory.CreateShuffledDeck();
-
-        // 카드 분배 (각자 5장)
-        CardDealer.DealInitialHands(
-            room.Players,
-            room.Deck,
-            // 각자 손에 들어가는 패
-            cardsPerPlayer: 5
-        );
+        CardDealer.DealInitialHands(room.Players, room.Deck, 5);
+        
+        if (room.Players.Count > 0)
+        {
+            room.CurrentTurnPlayerId = room.Players[0].PlayerId;
+        }
 
         room.IsStarted = true;
     }
 
-    /// <summary>
-    /// 방 조회
-    /// </summary>
     public GameRoom? GetRoom(string roomId)
     {
         _rooms.TryGetValue(roomId, out var room);
         return room;
     }
 
-    /// <summary>
-    /// 카드 뽑기
-    /// </summary>
-    public void StartTurn(GameRoom room)
-    {
-        if (room.IsFinished)
-            return;
-
-        var currentPlayer = room.Players
-            .First(p => p.PlayerId == room.CurrentTurnPlayerId);
-
-        // 턴 시작 시 카드 1장 지급
-        DrawCard(room, currentPlayer);
-    }
-
-    /// <summary>
-    /// 카드 뽑기
-    /// </summary>
-    private void DrawCard(GameRoom room, Player player)
-    {
-        // 덱이 비어있으면 아무것도 하지 않음
-        if (room.Deck.Count == 0)
-            return;
-
-        var card = room.Deck[0];
-        room.Deck.RemoveAt(0);
-
-        player.Hand.Add(card);
-    }
-
-    /// <summary>
-    /// 내 턴에 수행하는 행동
-    /// UI 버튼에서 ActionType을 명확히 전달한다.
-    /// </summary>
-    public void ActingMyTurn(
-        GameRoom room,
-        string playerId,
-        TurnActionType actionType,
-        List<int>? discardIndexes = null)
-    {
-        // 게임 종료 상태면 아무 행동 불가
-        if (room.IsFinished)
-            return;
-
-        var player = room.Players
-            .First(p => p.PlayerId == playerId);
-
-        switch (actionType)
-        {
-            // =====================================
-            // 1️⃣ 카드 1장 버리기
-            // =====================================
-            case TurnActionType.DiscardOne:
-                if (discardIndexes == null)
-                    return;
-
-                DiscardOne(room, player, discardIndexes);
-                break;
-
-            // =====================================
-            // 2️⃣ 같은 카드 2장 + 1장 버리기
-            // =====================================
-            case TurnActionType.DiscardPairAndOne:
-                if (discardIndexes == null)
-                    return;
-
-                DiscardPairAndOne(room, player, discardIndexes);
-                break;
-
-            // =====================================
-            // 3️⃣ 게임 종료 선언 버튼
-            // (6장 즉시 종료 전용)
-            // =====================================
-            case TurnActionType.DeclareWin:
-
-                // Rule에서 점수 계산 + 종료 가능 여부 판정
-                if (GameRule.CheckSixCardImmediateFinish(room, player))
-                {
-                    DeclareWin(
-                        room,
-                        player,
-                        WinReason.SixCardImmediate
-                    );
-                }
-                break;
-        }
-    }
-
-    /// <summary>
-    /// 카드 1장 버리기
-    /// </summary>
-    private bool DiscardOne(GameRoom room, Player player, List<int> indexes)
-    {
-        if(indexes.Count != 1)
-            return false;
-
-        DiscardCards(room, player, indexes);
-
-        EndTurn(room);
-        return true;
-    }
-
-    /// <summary>
-    /// 같은 카드 2장 + 1장 버리기
-    /// </summary>
-    private bool DiscardPairAndOne(GameRoom room, Player player, List<int> indexes)
-    {
-        if(indexes.Count != 3)
-            return false;
-
-        var cards = indexes.Select(i => player.Hand[i]).ToList();
-
-        // 같은 Rank 2장 검증
-        var groups = cards.GroupBy(c => c.Rank).ToList();
-        if (!groups.Any(g => g.Count() == 2))
-            return false;
-
-        DiscardCards(room, player, indexes);
-
-        // 손에 2장만 남고 같은 카드
-        if (player.Hand.Count == 2 &&
-            player.Hand[0].Rank == player.Hand[1].Rank)
-        {
-            player.IsWaitingFinalWin = true;
-        }
-
-        EndTurn(room);
-        return true;
-    }
-
-    /// <summary>
-    /// 게임 종료 및 승자 확정
-    /// </summary>
-    private void DeclareWin(
-        GameRoom room,
-        Player winner,
-        WinReason reason)
-    {
-        if (room.IsFinished)
-            return;
-
-        room.IsFinished = true;
-        room.WinnerPlayerId = winner.PlayerId;
-        room.WinReason = reason;
-    }
-
-    /// <summary>
-    /// 다른 플레이어의 턴 중
-    /// 방금 버려진 카드에 대해 인터럽트 행동 처리
-    /// </summary>
-    public bool ReactToDiscard(
-        string roomId,
-        string reactingPlayerId,
-        List<int> handIndexes)
-    {
-        // 방 조회
-        if (!_rooms.TryGetValue(roomId, out var room))
-            return false;
-
-        // 플레이어 조회
-        var player = room.Players
-            .FirstOrDefault(p => p.PlayerId == reactingPlayerId);
-
-        if (player == null)
-            return false;
-
-        // 마지막 버려진 카드
-        var discardedCard = room.LastDiscardedCard;
-        if (discardedCard == null)
-            return false;
-
-        // 이미 종료된 게임이면 무시
-        if (room.IsFinished)
-            return false;
-
-        // =====================================
-        // 1️⃣ Rule: 인터럽트 가능 여부 검사
-        // =====================================
-        if (!GameRule.CanReactToDiscard(
-                player,
-                discardedCard,
-                handIndexes))
-        {
-            return false;
-        }
-
-        // =====================================
-        // 2️⃣ 카드 실제로 버리기
-        // =====================================
-        DiscardCards(room, player, handIndexes);
-
-        // =====================================
-        // 3️⃣ Final Wait 상태 진입 여부
-        // =====================================
-        if (player.Hand.Count == 2 &&
-            player.Hand[0].Rank == player.Hand[1].Rank)
-        {
-            player.IsWaitingFinalWin = true;
-        }
-
-        // =====================================
-        // 4️⃣ 즉시 승리 판정 (모든 플레이어 대상)
-        // =====================================
-        foreach (var p in room.Players)
-        {
-            // 4-1 Final Wait 인터럽트
-            if (GameRule.CheckFinalWaitInterrupt(p, discardedCard))
-            {
-                p.Score += 30;
-
-                DeclareWin(
-                    room,
-                    p,
-                    WinReason.FinalWaitInterrupt
-                );
-                return true;
-            }
-
-            // 4-2 Triple 인터럽트
-            if (GameRule.CheckTripleInterrupt(p, discardedCard))
-            {
-                p.Score += 30;
-
-                DeclareWin(
-                    room,
-                    p,
-                    WinReason.TripleInterrupt
-                );
-                return true;
-            }
-        }
-
-        return true;
-    }
-
-
-    /// <summary>
-    /// 게임 승리 조건
-    /// </summary>
-    // public bool CheckFinalWin(
-    //     GameRoom room,
-    //     PlayingCard discardedCard)
-    // {
-    //     // 참여중인 플레이어 순회 - 본인 턴이 아닌 경우에도 끝낼 수 있어서
-    //     foreach(var player in room.Players)
-    //     {
-    //         // 아직 2장만 남은 상태가 아닌 플레이어 스킵
-    //         if(!player.IsWaitingFinalWin)
-    //             continue;
-
-    //         // 손에 2장만 남아있고, 그 2장의 rank가 방금 버려진 카드의 rank와 같다면 - 바가지
-    //         if(player.Hand.Count == 2 && 
-    //             player.Hand.All(c => c.Rank == discardedCard.Rank))
-    //         {
-    //             // 승리 조건 충족 -> 게임 종료
-    //             // room.IsFinished = true;
-    //             DeclareWin(room, player);
-
-    //             // 승자 정보 저장  
-    //             room.WinnerPlayerId = player.PlayerId;
-    //         }
-    //     }
-    //     // 아무도 승리 조건을 만족하지 않음
-    //     return false;
-    // }
-
-    /// <summary>
-    /// 턴 넘기기
-    /// </summary>
-    public void EndTurn(GameRoom room)
-    {
-        if(room.IsFinished)
-            return;
-
-        var currentIndex = room.Players
-            .FindIndex(p => p.PlayerId == room.CurrentTurnPlayerId);
-
-        // 다음 플에이어 인덱스 계산 (원형)
-        var nextIndex = (currentIndex + 1) % room.Players.Count;
-
-        room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
-
-        // 다음 턴 시작
-        StartTurn(room);
-    }
-
-    /// <summary>
-    /// 플레이어 손에서 카드 여러 장을 버린다
-    /// - handIndexes는 플레이어 Hand 기준 인덱스
-    /// </summary>
-    private void DiscardCards(
-        GameRoom room,
-        Player player,
-        List<int> handIndexes)
-    {
-        // 인덱스 내림차순 정렬
-        // → 앞에서 지우면 인덱스가 밀림
-        var sortedIndexes = handIndexes
-            .Distinct()
-            .OrderByDescending(i => i)
-            .ToList();
-
-        foreach (var index in sortedIndexes)
-        {
-            // 인덱스 범위 검사
-            if (index < 0 || index >= player.Hand.Count)
-                continue;
-
-            var card = player.Hand[index];
-
-            // 손에서 제거
-            player.Hand.RemoveAt(index);
-
-            // 버린 카드 더미에 추가
-            room.DiscardPile.Add(card);
-
-            // 마지막으로 버려진 카드 갱신
-            room.LastDiscardedCard = card;
-        }
-    }
-
-    /// <summary>
-    /// 게임 종료 시 플레이어 점수 계산
-    /// </summary>
-    private void CalculateScores(GameRoom room)
-    {
-        foreach (var player in room.Players)
-        {
-            if(player.PlayerId == room.WinnerPlayerId)
-            {
-                player.Score += 10;
-                continue;
-            }
-        }
-    }
-
-    /// <summary>
-    /// 다음 라운드 진행 여부 판단
-    /// </summary>
-    public bool CanStartNextRound(GameRoom room)
-    {
-        return room.CurrentRound < room.TotalRounds;
-    }
-
-    /// <summary>
-    /// 다음 라운드 시작
-    /// </summary>
-    public void StartNextRound(GameRoom room)
-    {
-        room.CurrentRound++;
-        room.IsFinished = false;
-        room.WinnerPlayerId = null;
-
-        // 플레이어 상태 초기화
-        foreach(var player in room.Players)
-        {
-            player.Hand.Clear();
-            player.IsWaitingFinalWin = false;
-        }
-        
-        room.Deck.Clear();
-        room.DiscardPile.Clear();
-        room.LastDiscardedCard = null;
-
-        // 덱 생성 및 셔플
-        room.Deck = DeckFactory.CreateShuffledDeck();
-
-        // 첫 턴 지정
-        room.CurrentTurnPlayerId = room.Players[0].PlayerId;
-
-        // 초기 패 지급 5장
-        foreach(var player in room.Players)
-        {
-            for(int i = 0; i < 5; i ++)
-            {
-                DrawCard(room, player);
-            }
-        }
-    }
-
-    // 방 목록 조회(로비)
     public IEnumerable<GameRoom> GetRooms()
     {
         return _rooms.Values;
     }
 
-    // 방 삭제(호스트 나가면)
     public void RemoveRoom(string roomId)
     {
         _rooms.TryRemove(roomId, out _);
     }
 
-    internal bool TryInterrupt(GameRoom room, string playerId, List<int> handIndexes)
+    // --- 게임 진행 관련 내부 로직 (생략 없이 모두 포함) ---
+
+    public void StartTurn(GameRoom room)
     {
-        throw new NotImplementedException();
+        if (room.IsFinished) return;
+        var currentPlayer = room.Players.FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
+        if (currentPlayer != null) DrawCard(room, currentPlayer);
+    }
+
+    private void DrawCard(GameRoom room, Player player)
+    {
+        if (room.Deck.Count == 0) return;
+        var card = room.Deck[0];
+        room.Deck.RemoveAt(0);
+        player.Hand.Add(card);
+    }
+
+    public void ActingMyTurn(GameRoom room, string playerId, TurnActionType actionType, List<int>? discardIndexes = null)
+    {
+        if (room.IsFinished) return;
+        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
+        if (player == null) return;
+
+        switch (actionType)
+        {
+            case TurnActionType.DiscardOne:
+                if (discardIndexes != null) DiscardOne(room, player, discardIndexes);
+                break;
+            case TurnActionType.DiscardPairAndOne:
+                if (discardIndexes != null) DiscardPairAndOne(room, player, discardIndexes);
+                break;
+            case TurnActionType.DeclareWin:
+                if (GameRule.CheckSixCardImmediateFinish(room, player))
+                    DeclareWin(room, player, WinReason.SixCardImmediate);
+                break;
+        }
+    }
+
+    private bool DiscardOne(GameRoom room, Player player, List<int> indexes)
+    {
+        if (indexes.Count != 1) return false;
+        DiscardCards(room, player, indexes);
+        EndTurn(room);
+        return true;
+    }
+
+    private bool DiscardPairAndOne(GameRoom room, Player player, List<int> indexes)
+    {
+        if (indexes.Count != 3) return false;
+        var cards = indexes.Select(i => player.Hand[i]).ToList();
+        if (!cards.GroupBy(c => c.Rank).Any(g => g.Count() == 2)) return false;
+
+        DiscardCards(room, player, indexes);
+        if (player.Hand.Count == 2 && player.Hand[0].Rank == player.Hand[1].Rank)
+            player.IsWaitingFinalWin = true;
+
+        EndTurn(room);
+        return true;
+    }
+
+    public void DeclareWin(GameRoom room, Player winner, WinReason reason)
+    {
+        if (room == null || room.IsFinished) return;
+
+        // 1. 승리 조건 체크 (2.1 ~ 2.6 로직 실행)
+        var (isValid, winType, scoreValue) = CheckWinCondition(winner.Hand);
+
+        // [참고] SixCardImmediate(사구) 같은 특수 케이스는 reason을 통해 들어옵니다.
+        if (!isValid && reason != WinReason.SixCardImmediate)
+        {
+            throw new Exception("승리 조건을 만족하지 않습니다.");
+        }
+
+        // 2. 게임 상태 업데이트
+        room.IsFinished = true;
+        room.IsGameOver = true; // 프론트엔드 알림용
+        room.WinnerPlayerId = winner.PlayerId;
+        room.WinnerName = winner.Name;
+        room.WinReason = reason;
+
+        // 3. 점수 계산 및 정산
+        foreach (var player in room.Players)
+        {
+            if (player.PlayerId == winner.PlayerId)
+            {
+                // 승리자는 감점 (winType에 따른 점수 사용)
+                // 예: SixOfAKind면 -200점 등
+                player.TotalScore += scoreValue; 
+            }
+            else
+            {
+                // 패배자는 핸드 점수 합산 (3장 이상 동일 카드 제외)
+                player.TotalScore += CalculateLoserScore(player.Hand);
+            }
+        }
+    }
+
+    // 승리 조건 체크 핵심 로직
+    private (bool isValid, string winType, int scoreValue) CheckWinCondition(List<PlayingCard> hand)
+    {
+        int jokerCount = hand.Count(c => c.Rank == "Joker");
+        var normalCards = hand.Where(c => c.Rank != "Joker").ToList();
+        var groups = normalCards.GroupBy(c => c.Rank).Select(g => g.Count()).OrderByDescending(c => c).ToList();
+
+        int maxGroup = (groups.FirstOrDefault() + jokerCount);
+
+        // 2.1 사구 (6장)
+        if (maxGroup >= 6) return (true, "SixOfAKind", -200);
+
+        // 2.2 4장 + 2장
+        if (CanMakeGroups(hand, new[] { 4, 2 })) return (true, "FourAndTwo", -100);
+
+        // 2.3 3장 + 3장
+        if (CanMakeGroups(hand, new[] { 3, 3 })) return (true, "ThreeAndThree", -150);
+
+        // 2.4 2장 + 2장 + 2장
+        if (CanMakeGroups(hand, new[] { 2, 2, 2 })) return (true, "ThreePairs", -80);
+
+        // 2.5 5장 (패가 5장일 때)
+        if (maxGroup >= 5 && hand.Count <= 5) return (true, "FiveOfAKind", -60);
+
+        // 기본 승리 (3장 등)
+        if (maxGroup >= 3 && hand.Count <= 3) return (true, "NormalWin", -30);
+
+        return (false, "None", 0);
+    }
+
+    // 도우미: 특정 조합(예: 4장, 2장)을 조커를 사용하여 만들 수 있는지 판별
+    private bool CanMakeGroups(List<PlayingCard> hand, int[] required)
+    {
+        int jokers = hand.Count(c => c.Rank == "Joker");
+        var counts = hand.Where(c => c.Rank != "Joker")
+                        .GroupBy(c => c.Rank)
+                        .Select(g => g.Count())
+                        .OrderByDescending(c => c).ToList();
+
+        // 간단한 그리디 알고리즘으로 조커 배분하여 조합 확인
+        // (실제로는 더 정교한 최적화가 필요할 수 있으나 기본 룰 대응 가능)
+        foreach (var req in required)
+        {
+            bool matched = false;
+            for (int i = 0; i < counts.Count; i++)
+            {
+                if (counts[i] >= req) { counts[i] -= req; matched = true; break; }
+                if (counts[i] + jokers >= req) { jokers -= (req - counts[i]); counts[i] = 0; matched = true; break; }
+            }
+            if (!matched && jokers >= req) { jokers -= req; matched = true; }
+            if (!matched) return false;
+        }
+        return true;
+    }
+
+    // 승리자 감점 액수 정의
+    private int CalculateWinnerScore(string winType)
+    {
+        return winType switch
+        {
+            "SixOfAKind" => -200,    // 6장 동일
+            "FourAndTwo" => -100,    // 4장, 2장
+            "ThreeAndThree" => -150, // 3장, 3장
+            "ThreePairs" => -80,     // 2+2+2
+            "FiveOfAKind" => -60,    // 5장 동일
+            _ => -30
+        };
+    }
+
+    // 패배자 점수 계산 (3장 이상 같은 숫자 제외)
+    private int CalculateLoserScore(List<PlayingCard> hand)
+    {
+        var normalCards = hand.Where(c => c.Rank != "Joker").ToList();
+        var groupCounts = normalCards.GroupBy(c => c.Rank).ToDictionary(g => g.Key, g => g.Count());
+
+        int score = 0;
+        foreach (var card in normalCards)
+        {
+            if (groupCounts[card.Rank] < 3) // 3장 미만인 카드만 점수 합산
+            {
+                score += GetRankValue(card.Rank);
+            }
+        }
+        return score;
+    }
+
+    public void EndTurn(GameRoom room)
+    {
+        if (room.IsFinished) return;
+        var currentIndex = room.Players.FindIndex(p => p.PlayerId == room.CurrentTurnPlayerId);
+        if (currentIndex == -1) currentIndex = 0;
+
+        var nextIndex = (currentIndex + 1) % room.Players.Count;
+        room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
+        StartTurn(room);
+    }
+
+    private void DiscardCards(GameRoom room, Player player, List<int> handIndexes)
+    {
+        var sortedIndexes = handIndexes.Distinct().OrderByDescending(i => i).ToList();
+        foreach (var index in sortedIndexes)
+        {
+            if (index < 0 || index >= player.Hand.Count) continue;
+            var card = player.Hand[index];
+            player.Hand.RemoveAt(index);
+            room.DiscardPile.Add(card);
+            room.LastDiscardedCard = card;
+        }
+    }
+
+    private List<PlayingCard> CreateNewDeck()
+    {
+        var deck = new List<PlayingCard>();
+        string[] suits = { "♠", "♥", "♦", "♣" };
+        // A(1)부터 K(13)까지 정확히 정의
+        string[] ranks = { "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K" };
+
+        // 1. 일반 카드 생성 (4문양 * 13장 = 52장)
+        foreach (var suit in suits)
+        {
+            foreach (var rank in ranks)
+            {
+                deck.Add(new PlayingCard 
+                { 
+                    Suit = suit, 
+                    Rank = rank, 
+                    Color = (suit == "♥" || suit == "♦") ? "Red" : "Black" 
+                });
+            }
+        }
+
+        // 2. 조커 딱 1장만 추가 (합계 53장)
+        // 기존에 Joker1, Joker2를 넣는 루프가 있었다면 모두 지우고 이것만 남기세요.
+        deck.Add(new PlayingCard 
+        { 
+            Suit = "Joker", 
+            Rank = "Joker", 
+            Color = "Black" 
+        });
+
+        return deck;
+    }
+
+    // GameRoomService.cs
+
+// GameRoomService.cs 클래스 내부
+
+    public GameRoom DrawCard(string roomId, string playerId)
+    {
+        var room = GetRoom(roomId);
+        if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId) 
+            return room;
+
+        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
+        if (player == null || room.Deck.Count == 0) return room;
+
+        // [수정] 5장뿐만 아니라 2장일 때도 뽑을 수 있도록 조건 완화 (혹은 조건 삭제)
+        // 1장을 뽑으면 3장 또는 6장이 됨
+        var newCard = room.Deck[0];
+        room.Deck.RemoveAt(0);
+        player.Hand.Add(newCard);
+
+        // 🔴 중요: 여기서 턴을 절대 넘기지 않음!
+        // 턴은 오직 PlayCard(버리기)에서만 넘어감
+        return room;
+    }
+
+    public GameRoom PlayCard(string roomId, string playerId, PlayingCard card)
+    {
+        var room = GetRoom(roomId);
+        if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId) 
+            return room;
+
+        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
+        if (player == null) return room;
+
+        var cardToPlay = player.Hand.FirstOrDefault(c => c.Suit == card.Suit && c.Rank == card.Rank);
+        
+        if (cardToPlay != null)
+        {
+            player.Hand.Remove(cardToPlay);
+            room.LastDiscardedCard = cardToPlay;
+            room.DiscardPile.Add(cardToPlay);
+            
+            // [수정] 카드 버린 후 턴 넘기기
+            // 패가 2장(뽑기 전) -> 3장(뽑은 후) -> 2장(버린 후) 인 경우도 다음 턴으로
+            int currentIndex = room.Players.FindIndex(p => p.PlayerId == playerId);
+            int nextIndex = (currentIndex + 1) % room.Players.Count;
+            room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
+        }
+        return room;
+    }
+
+    // 족보 체크 및 점수 계산 메서드 (GameRoomService 내부)
+    public int CalculateFinalScore(List<PlayingCard> hand, bool isWinner)
+    {
+        // 조커를 제외한 숫자 리스트 (Joker는 어떤 숫자로든 변신 가능)
+        var jokers = hand.Count(c => c.Rank == "Joker1" || c.Rank == "Joker2");
+        var numbers = hand.Where(c => c.Rank != "Joker1" && c.Rank != "Joker2")
+                        .Select(c => int.Parse(c.Rank)).OrderBy(n => n).ToList();
+
+        if (isWinner) {
+            // 승리자 감점 로직 (여기에 2.1 ~ 2.6 로직 구현)
+            // 예: 2.2 (4장, 2장 같은 카드인 경우) -100점
+            // 이 부분은 복잡한 조합 최적화 로직이 들어가야 하므로 승리 선언 시 별도 체크
+            return 0; // 기본 반환값 (실제 로직은 승리 선언 시점에 처리)
+        } else {
+            // 패배자 점수 합산 로직
+            // 같은 카드 3장 이상 제외 로직 포함
+            var groups = numbers.GroupBy(n => n).Where(g => g.Count() < 3);
+            int score = 0;
+            foreach(var g in groups) score += g.Key * g.Count();
+            return score;
+        }
+    }
+
+    private int GetRankValue(string rank)
+    {
+        return rank switch
+        {
+            "A" => 1,
+            "J" => 11,
+            "Q" => 12,
+            "K" => 13,
+            "Joker" => 0, // 조커는 이미 위에서 제외했지만 안전을 위해 추가
+            _ => int.TryParse(rank, out int val) ? val : 0
+        };
+    }
+
+    public void GiveUpGame(string roomId, string playerId)
+    {
+        var room = GetRoom(roomId);
+        if (room == null || room.IsFinished) return;
+
+        var surrenderPlayer = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
+        
+        // 게임 종료 상태로 변경
+        room.IsFinished = true;
+        room.IsStarted = false; // 게임 중 아님 상태로 변경
+        
+        // 기권자 정보를 기록하거나 승자를 임의 지정 (예: 남은 인원 중 첫 번째)
+        room.WinnerName = $"{surrenderPlayer?.Name} 기권";
+        room.WinReason = WinReason.ManualDeclare; // 기권 관련 Enum이 있다면 그것을 사용
     }
 }
-
-
