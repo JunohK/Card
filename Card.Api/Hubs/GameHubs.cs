@@ -103,30 +103,43 @@ public class GameHub : Hub
     public async Task<object> GetRoom(string roomId)
     {
         var room = _roomService.GetRoom(roomId);
-        if(room == null)
-        {
-            throw new HubException("방을 찾을 수 없습니다.");
-        }
+        if(room == null) throw new HubException("방을 찾을 수 없습니다.");
 
-        // 클라이언트가 기대하는 GameState 구조로 변환
         return new
         {
             RoomId = room.RoomId,
             Title = room.Title,
-            Players = room.Players.Select(p => new
-            {
+            Players = room.Players.Select(p => new {
                 PlayerId = p.PlayerId,
                 Name = p.Name,
-                Hand = p.Hand ?? new List<PlayingCard>()
+                Hand = p.Hand ?? new List<PlayingCard>(),
+                TotalScore = p.TotalScore
             }),
             CurrentTurnPlayerId = room.CurrentTurnPlayerId,
             LastDiscardedCard = room.LastDiscardedCard,
             DeckCount = room.DeckCount,
-            IsStarted = room.IsStarted,
-            IsGameOver = room.IsGameOver,
+            IsStarted = room.IsStarted,   // 대기실 복귀 판단 기준
+            IsFinished = room.IsFinished, // 전광판 표시 기준
             WinnerName = room.WinnerName,
-            HostPlayerId = room.HostPlayerId
+            HostPlayerId = room.HostPlayerId,
+            CurrentRound = room.CurrentRound,
+            MaxRounds = room.MaxRounds
         };
+    }
+
+    public async Task UpdateRoomSettings(string roomId, int maxRounds)
+    {
+        var room = _roomService.GetRoom(roomId);
+        if (room == null) return;
+
+        // 방장이 아닌 사람이 요청하면 무시
+        if (room.HostPlayerId != Context.ConnectionId) return;
+
+        // 서버 메모리에 저장된 라운드 수 변경
+        room.MaxRounds = maxRounds;
+
+        // 🔴 방의 모든 인원에게 변경된 정보를 쏨 (RoomUpdated 이벤트 발생)
+        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
     }
 
     public async Task PlayCard(string roomId, PlayingCard card)
@@ -241,6 +254,22 @@ public class GameHub : Hub
         }
     }
 
+    public async Task ReshuffleDeck(string roomId)
+    {
+        var playerId = Context.ConnectionId; // 또는 유저 ID
+        var success = _roomService.ReshuffleDiscardPile(roomId, playerId);
+
+        if (success)
+        {
+            // 방 안의 모든 유저에게 덱이 갱신되었음을 알림
+            await Clients.Group(roomId).SendAsync("DeckReshuffled", "버려진 카드가 다시 덱으로 들어갔습니다.");
+            
+            // 갱신된 방 상태 전송 (덱 개수 등을 클라이언트에서 업데이트하기 위함)
+            var room = _roomService.GetRoom(roomId);
+            await Clients.Group(roomId).SendAsync("UpdateRoom", room);
+        }
+    }
+
     // DrawCard(카드 뽑기) 메서드도 미리 추가해두세요 (에러 방지)
     // [Authorize]
     // public async Task DrawCard(string roomId)
@@ -309,15 +338,30 @@ public class GameHub : Hub
     // 기권
     public async Task GiveUp(string roomId)
     {
-        _roomService.GiveUpGame(roomId, Context.ConnectionId);
+        // 1. 일단 서비스 로직을 실행해서 DB(메모리) 값을 먼저 바꿉니다.
         var room = _roomService.GetRoom(roomId);
-        
-        // 1. 모든 인원에게 게임 종료 상태 알림
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        if (room == null) return;
 
-        // 2. ⭐ 핵심: 모든 플레이어에게 대기실로 돌아가라고 신호를 보냄
-        // 2초 정도 뒤에 이동하게 하거나, 클라이언트에서 팝업을 띄운 뒤 이동하게 합니다.
-        await Clients.Group(roomId).SendAsync("GameTerminated", roomId);
+        if (room.IsFinished) 
+        {
+            _roomService.CompleteGame(roomId); // 내부에서 IsStarted = false 처리 완료
+        }
+        else 
+        {
+            _roomService.GiveUpGame(roomId, Context.ConnectionId); // 기권 처리
+        }
+
+        // 2. 🔴 중요: 상태가 변경된 '최신' 객체를 다시 가져옵니다.
+        var updatedRoom = _roomService.GetRoom(roomId);
+
+        // 3. 최신 데이터를 전송합니다. (이제 IsStarted가 false인 것이 보장됨)
+        await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+        
+        // 4. 안전장치: 아예 명시적 신호를 하나 더 보냅니다.
+        if (updatedRoom != null && !updatedRoom.IsStarted)
+        {
+            await Clients.Group(roomId).SendAsync("ExitToRoom", roomId);
+        }
     }
 
     // ✅ 채팅

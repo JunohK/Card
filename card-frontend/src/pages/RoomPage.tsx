@@ -15,6 +15,7 @@ interface GameRoom {
     players: Player[];
     hostPlayerId: string;
     isStarted: boolean;
+    maxRounds: number; // 서버에서 받아올 라운드 설정값
 }
 
 const RoomPage: React.FC = () => {
@@ -22,7 +23,6 @@ const RoomPage: React.FC = () => {
     const navigate = useNavigate();
     const { user: currentUser } = useAuth();
     const [room, setRoom] = useState<GameRoom | null>(null);
-    const [selectedRounds, setSelectedRounds] = useState<number>(1);
 
     useEffect(() => {
         const initRoom = async () => {
@@ -35,6 +35,7 @@ const RoomPage: React.FC = () => {
         initRoom();
 
         connection.on("RoomUpdated", (updatedRoom: GameRoom) => {
+            console.log("서버로부터 방 정보 수신:", updatedRoom);
             setRoom(updatedRoom);
             if (updatedRoom.isStarted) {
                 navigate(`/game/${roomId}`);
@@ -51,10 +52,23 @@ const RoomPage: React.FC = () => {
         };
     }, [roomId, navigate]);
 
-    const handleStartGame = async () => {
-        if (!roomId) return;
+    // 방장이 버튼을 누를 때 호출되는 함수
+    const handleRoundChange = async (rounds: number) => {
+        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        
         try {
-            await connection.invoke("StartGame", roomId, selectedRounds);
+            // 🔴 서버에 설정 변경 요청
+            await connection.invoke("UpdateRoomSettings", roomId, rounds);
+        } catch (err) {
+            console.error("라운드 설정 변경 실패:", err);
+        }
+    };
+
+    const handleStartGame = async () => {
+        if (!roomId || !room) return;
+        try {
+            // 시작할 때는 현재 서버에 설정된 라운드 값을 사용
+            await connection.invoke("StartGame", roomId, room.maxRounds);
         } catch (err) {
             console.error("StartGame Error:", err);
         }
@@ -74,6 +88,8 @@ const RoomPage: React.FC = () => {
     if (!room) return <div className="room-container">불러오는 중...</div>;
 
     const isHost = room.hostPlayerId === connection.connectionId;
+    // 🔴 현재 선택된 라운드는 서버 데이터(room.maxRounds)를 기준으로 함
+    const currentRounds = room.maxRounds || 1;
 
     return (
         <div className="room-container">
@@ -88,8 +104,15 @@ const RoomPage: React.FC = () => {
                     {[1, 5, 10].map((r) => (
                         <button
                             key={r}
-                            onClick={() => setSelectedRounds(r)}
-                            className={`round-btn ${selectedRounds === r ? 'active' : ''}`}
+                            disabled={!isHost}
+                            // 🔴 클릭 시 로컬 state가 아닌 서버 invoke 호출
+                            onClick={() => handleRoundChange(r)}
+                            // 🔴 서버가 알려준 currentRounds 값과 같으면 active 클래스 부여
+                            className={`round-btn ${currentRounds === r ? 'active' : ''}`}
+                            style={{
+                                cursor: isHost ? 'pointer' : 'not-allowed',
+                                opacity: isHost || currentRounds === r ? 1 : 0.6
+                            }}
                         >
                             {r}
                         </button>
@@ -115,11 +138,11 @@ const RoomPage: React.FC = () => {
                 <div className="action-area">
                     {isHost ? (
                         <button onClick={handleStartGame} className="start-btn">
-                            {selectedRounds}라운드 게임 시작
+                            {currentRounds}라운드 게임 시작
                         </button>
                     ) : (
                         <div className="waiting-box">
-                            방장이 게임을 시작하기를 기다리는 중...
+                            방장이 시작하기를 기다리는 중...
                         </div>
                     )}
                     <button onClick={handleLeave} className="leave-btn">
