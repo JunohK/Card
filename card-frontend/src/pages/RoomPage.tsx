@@ -1,124 +1,134 @@
-import { useEffect, useState, useRef } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import { connection } from "../signalr/connection";
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { connection, ensureConnection } from '../signalr/connection';
+import { useAuth } from '../auth/authContext';
+import './RoomPage.css';
 
-type Player = { playerId: string; name: string; };
-type RoomState = {
+interface Player {
+    playerId: string;
+    name: string;
+}
+
+interface GameRoom {
     roomId: string;
     title: string;
     players: Player[];
+    hostPlayerId: string;
     isStarted: boolean;
-    hostPlayerId?: string;
-};
+}
 
-export default function RoomPage() {
+const RoomPage: React.FC = () => {
     const { roomId } = useParams<{ roomId: string }>();
     const navigate = useNavigate();
-    const [room, setRoom] = useState<RoomState | null>(null);
-    const [connected, setConnected] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    
-    // StrictMode 중복 실행 방지용
-    const initialized = useRef(false);
+    const { user: currentUser } = useAuth();
+    const [room, setRoom] = useState<GameRoom | null>(null);
+    const [selectedRounds, setSelectedRounds] = useState<number>(1);
 
     useEffect(() => {
-        if (!roomId || initialized.current) return;
-        initialized.current = true;
-
-        // [핵심] 리스너 중복 방지를 위해 함수를 별도로 정의
-        const onRoomUpdated = (updatedRoom: RoomState) => {
-            console.log("RoomUpdated:", updatedRoom);
-            setRoom({ ...updatedRoom }); // 새로운 객체 주입
-            setError(null);
-        };
-
-        const onGameStarted = (startedRoom: RoomState) => {
-            setRoom({ ...startedRoom });
-            alert("게임이 시작되었습니다!");
-            navigate(`/game/${roomId}`);
-        };
-
-        // 기존 리스너를 한 번 지우고 다시 등록
-        connection.off("RoomUpdated");
-        connection.off("GameStarted");
-        connection.on("RoomUpdated", onRoomUpdated);
-        connection.on("GameStarted", onGameStarted);
-
-        const init = async () => {
-            try {
-                if (connection.state === "Disconnected") {
-                    await connection.start();
-                }
-                setConnected(true);
-                const savedPwd = sessionStorage.getItem(`room_pwd_${roomId}`);
-                // JoinRoom 호출
-                await connection.invoke("JoinRoom", roomId, savedPwd || null);
-            } catch (err: any) {
-                setError(err.message || "입장 실패");
+        const initRoom = async () => {
+            const isConnected = await ensureConnection();
+            if (isConnected && roomId) {
+                await connection.invoke("JoinRoom", roomId, null);
             }
         };
 
-        init();
+        initRoom();
+
+        connection.on("RoomUpdated", (updatedRoom: GameRoom) => {
+            setRoom(updatedRoom);
+            if (updatedRoom.isStarted) {
+                navigate(`/game/${roomId}`);
+            }
+        });
+
+        connection.on("GameStarted", (gameData: any) => {
+            navigate(`/game/${roomId}`);
+        });
 
         return () => {
-            // 언마운트 시 리스너 해제
             connection.off("RoomUpdated");
             connection.off("GameStarted");
-            initialized.current = false;
         };
-    }, [roomId]);
+    }, [roomId, navigate]);
 
-    const leaveRoom = async () => {
-        if (roomId) await connection.invoke("LeaveRoom", roomId);
-        navigate("/lobby");
+    const handleStartGame = async () => {
+        if (!roomId) return;
+        try {
+            await connection.invoke("StartGame", roomId, selectedRounds);
+        } catch (err) {
+            console.error("StartGame Error:", err);
+        }
     };
 
-    const startGame = async () => {
-        if (roomId) await connection.invoke("StartGame", roomId);
+    const handleLeave = async () => {
+        if (!roomId) return;
+        try {
+            await connection.invoke("LeaveRoom", roomId);
+            navigate('/lobby');
+        } catch (err) {
+            console.error("Leave Error:", err);
+            navigate('/lobby');
+        }
     };
 
-    // [방장 확인] 서버에서 준 hostPlayerId와 내 connectionId가 같은지 비교
-    const isHost = room?.hostPlayerId === connection.connectionId;
+    if (!room) return <div className="room-container">불러오는 중...</div>;
 
-    if (error) return (
-        <div className="min-h-screen flex flex-col items-center justify-center">
-            <h2 className="text-red-600 font-bold text-xl">{error}</h2>
-            <button onClick={() => navigate("/lobby")} className="mt-4 bg-gray-800 text-white px-6 py-2 rounded">로비로</button>
-        </div>
-    );
+    const isHost = room.hostPlayerId === connection.connectionId;
 
     return (
-        <div className="max-w-3xl mx-auto p-6 bg-white shadow-xl mt-10 rounded-2xl">
-            <div className="border-b pb-4 mb-6">
-                <h1 className="text-3xl font-black text-gray-800">{room?.title || "연결 중..."}</h1>
-                {/* <p className="text-sm text-gray-400 font-mono">My ID: {connection.connectionId}</p> */}
-            </div>
+        <div className="room-container">
+            <div className="room-card">
+                <div className="room-header">
+                    <h1 className="room-title">{room.title}</h1>
+                    <p className="room-code">ROOM CODE: {room.roomId}</p>
+                </div>
 
-            <div className="mb-10">
-                <h2 className="text-lg font-bold mb-4">플레이어 ({room?.players?.length ?? 0}/7)</h2>
-                <div className="grid gap-3">
-                    {room?.players?.map((p) => (
-                        <div key={p.playerId} className={`p-4 rounded-xl border-2 flex justify-between items-center ${
-                            p.playerId === connection.connectionId ? "border-blue-500 bg-blue-50" : "border-gray-100"
-                        }`}>
-                            <span className="font-bold">
-                                {p.name} {p.playerId === connection.connectionId && "(나)"}
-                                {p.playerId === room.hostPlayerId && <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-1 rounded-full font-bold">👑 방장</span>}
-                            </span>
-                            <div className="flex gap-2">
+                <div className="section-title">목표 라운드 선택</div>
+                <div className="round-selector">
+                    {[1, 5, 10].map((r) => (
+                        <button
+                            key={r}
+                            onClick={() => setSelectedRounds(r)}
+                            className={`round-btn ${selectedRounds === r ? 'active' : ''}`}
+                        >
+                            {r}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="section-title">참여 플레이어 ({room.players.length}/7)</div>
+                <div className="player-list">
+                    {room.players.map((player) => (
+                        <div 
+                            key={player.playerId} 
+                            className={`player-item ${player.playerId === connection.connectionId ? 'me' : ''}`}
+                        >
+                            <div className="player-info-content">
+                                <span className="status-dot"></span>
+                                <b>{player.name}</b> {player.playerId === connection.connectionId && "(나)"}
                             </div>
+                            {player.playerId === room.hostPlayerId && <span className="host-icon">👑</span>}
                         </div>
                     ))}
                 </div>
-            </div>
 
-            <div className="flex gap-4">
-                {/* [방장 체크 결과 반영] */}
-                {!room?.isStarted && isHost && (
-                    <button onClick={startGame} className="flex-1 bg-blue-600 text-white font-bold py-4 rounded-xl hover:bg-blue-700 transition-all">게임 시작</button>
-                )}
-                <button onClick={leaveRoom} className="px-10 bg-gray-100 text-gray-600 font-bold py-4 rounded-xl">나가기</button>
+                <div className="action-area">
+                    {isHost ? (
+                        <button onClick={handleStartGame} className="start-btn">
+                            {selectedRounds}라운드 게임 시작
+                        </button>
+                    ) : (
+                        <div className="waiting-box">
+                            방장이 게임을 시작하기를 기다리는 중...
+                        </div>
+                    )}
+                    <button onClick={handleLeave} className="leave-btn">
+                        나가기
+                    </button>
+                </div>
             </div>
         </div>
     );
-}
+};
+
+export default RoomPage;

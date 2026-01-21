@@ -1,4 +1,4 @@
-// 플레이어
+// Player.cs
 namespace Card.Api.Domain;
 
 public class Player
@@ -15,8 +15,7 @@ public class Player
     // 손에 2장만 남고 같은 카드인 경우
     public bool IsWaitingFinalWin { get; set;} = false;
 
-    // 누적 점수
+    // 점수 관리 (Score는 이번 라운드 점수, TotalScore는 누적용으로 사용)
     public int Score { get; set; } = 0;
     public int TotalScore { get; set; } = 0;
-    public List<Player> Players { get; set; } = new();
 }

@@ -248,3 +248,38 @@
     transform: translateY(-2px);
     box-shadow: 0 5px 15px rgba(0,0,0,0.3);
 }
+
+/* 중앙 영역을 위아래로 정렬 */
+.table-center-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px; /* 카드와 버튼 사이 간격 */
+}
+
+/* 기존 가로 정렬 유지 */
+.table-center {
+    display: flex;
+    gap: 15px;
+}
+
+/* 가로채기 버튼 스타일 */
+.interrupt-btn {
+    padding: 10px 25px;
+    border-radius: 20px;
+    border: 2px solid #ccc;
+    background: #eee;
+    color: #999;
+    font-weight: bold;
+    cursor: not-allowed;
+    transition: all 0.2s;
+}
+
+.interrupt-btn.active {
+    background: #e74c3c;
+    border-color: #c0392b;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 0 10px rgba(231, 76, 60, 0.5);
+    transform: scale(1.1);
+}
