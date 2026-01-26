@@ -1,3 +1,14 @@
+@keyframes blueBlink {
+  0% { border: 3px solid #3498db; box-shadow: 0 0 5px #3498db; }
+  50% { border: 3px solid transparent; box-shadow: none; }
+  100% { border: 3px solid #3498db; box-shadow: 0 0 15px #3498db; }
+}
+
+.new-card-blink {
+  animation: blueBlink 0.8s ease-in-out infinite;
+  border-radius: 5px; /* 카드 모서리에 맞춤 */
+}
+
 .game-container {
   height: 100vh;
   width: 100vw;

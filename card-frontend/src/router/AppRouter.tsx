@@ -4,7 +4,8 @@ import LoginPage from "../pages/LoginPage";
 import LobbyPage from "../pages/LobbyPage";
 import SignupPage from "../pages/SignupPage";
 import RoomPage from "../pages/RoomPage";
-import GamePage from "../pages/GamePage"; // ✅ 추가
+import GamePage from "../pages/GamePage";
+import RulePage from "../pages/RulePage";
 import { useAuth } from "../auth/authContext";
 
 export default function AppRouter() {
@@ -38,6 +39,9 @@ export default function AppRouter() {
 
                 {/* fallback */}
                 <Route path="*" element={<Navigate to="/" replace />} />
+
+                {/* RulePage */}
+                <Route path="/rules" element={<RulePage />} />
             </Routes>
         </BrowserRouter>
     );
