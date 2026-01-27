@@ -29,7 +29,7 @@ export default function RulePage() {
             example: ["4", "5", "6", "7", "8", "9"]
         },
         {
-            title: "65",
+            title: "65-",
             description: "6장 카드의 값이 65 이상인 경우",
             score: "카드의 합계만큼 - n점",
             example: ["11", "11", "11", "12", "12", "13"]

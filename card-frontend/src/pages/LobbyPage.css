@@ -1,0 +1,235 @@
+/* LobbyPage.css */
+
+/* 1. 컨테이너 수정: Flexbox를 활용해 중앙 정렬 유도 */
+.lobby-container {
+    background-color: #0f172a; /* 딥 네이비 배경 */
+    min-height: 100vh;
+    width: 100%;
+    
+    /* 화면 중앙 배치를 위한 설정 */
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* 수직 중앙 정렬 */
+    align-items: center;     /* 가로 중앙 정렬 */
+    
+    /* 만약 너무 딱 붙는 게 싫다면 패딩을 상하로 크게 줍니다 */
+    padding: 4rem 2rem; 
+    box-sizing: border-box;
+    color: #f1f5f9;
+    font-family: 'Pretendard', sans-serif;
+}
+
+/* 2. 래퍼: max-width는 유지하되 컨테이너 중앙에 오도록 */
+.lobby-wrapper {
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+    .lobby-wrapper {
+        grid-template-columns: 3fr 1fr; /* 방 목록과 채팅 비율 */
+    }
+}
+
+/* 카드 공통 스타일 */
+.lobby-card {
+    background-color: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 1rem;
+    padding: 1.5rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+}
+
+/* 상단 헤더 */
+.lobby-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid #334155;
+    padding-bottom: 1rem;
+}
+
+.lobby-title-text h1 {
+    font-size: 1.8rem;
+    font-weight: 900;
+    color: #38bdf8;
+    margin: 0;
+    letter-spacing: -0.5px;
+}
+
+.lobby-title-text p {
+    color: #94a3b8;
+    margin-top: 0.25rem;
+}
+
+.logout-btn {
+    background: transparent;
+    border: 1px solid #ef4444;
+    color: #ef4444;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-weight: bold;
+    transition: 0.2s;
+}
+
+.logout-btn:hover {
+    background: rgba(239, 68, 68, 0.1);
+}
+
+/* 방 목록 영역 */
+.room-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.create-room-btn {
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    padding: 0.75rem 1.5rem;
+    border-radius: 0.75rem;
+    font-weight: 900;
+    cursor: pointer;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+    transition: 0.2s;
+}
+
+.create-room-btn:hover:not(:disabled) {
+    background-color: #3b82f6;
+    transform: translateY(-2px);
+}
+
+.room-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1rem;
+}
+
+@media (min-width: 768px) {
+    .room-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.room-item {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    padding: 1.25rem;
+    border-radius: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: 0.2s;
+}
+
+.room-item:hover {
+    border-color: #38bdf8;
+    background-color: #1e293b;
+}
+
+.join-btn {
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    padding: 0.5rem 1.25rem;
+    border-radius: 0.5rem;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+.join-btn:disabled {
+    background-color: #334155;
+    color: #64748b;
+    cursor: not-allowed;
+}
+
+/* 채팅 영역 */
+.chat-section {
+    height: 600px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+}
+
+.status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}
+
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    background-color: #0f172a;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.chat-bubble {
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.75rem;
+    font-size: 0.85rem;
+    max-width: 85%;
+    border: 1px solid #334155;
+}
+
+.chat-input-area {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.chat-input {
+    flex: 1;
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    color: white;
+    outline: none;
+}
+
+.chat-input:focus {
+    border-color: #38bdf8;
+}
+
+/* 모달 */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background-color: #1e293b;
+    padding: 2rem;
+    border-radius: 1rem;
+    width: 100%;
+    max-width: 400px;
+    border: 1px solid #334155;
+}

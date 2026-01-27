@@ -16,6 +16,7 @@ interface GameRoom {
     hostPlayerId: string;
     isStarted: boolean;
     maxRounds: number; // 서버에서 받아올 라운드 설정값
+    IsStarted?: boolean; // 서버가 대문자로 줄 경우 대비
 }
 
 const RoomPage: React.FC = () => {
@@ -28,27 +29,49 @@ const RoomPage: React.FC = () => {
         const initRoom = async () => {
             const isConnected = await ensureConnection();
             if (isConnected && roomId) {
+                // 방 입장 시도
                 await connection.invoke("JoinRoom", roomId, null);
             }
         };
 
         initRoom();
 
-        connection.on("RoomUpdated", (updatedRoom: GameRoom) => {
+        // 1. 방 정보 갱신 처리
+        const onRoomUpdated = (updatedRoom: GameRoom) => {
             console.log("서버로부터 방 정보 수신:", updatedRoom);
             setRoom(updatedRoom);
+            
+            // 기권 후 돌아왔을 때 isStarted가 false여야 대기실에 머무름
             if (updatedRoom.isStarted) {
                 navigate(`/game/${roomId}`);
             }
-        });
+        };
 
-        connection.on("GameStarted", (gameData: any) => {
+        // 2. 입장 성공 이벤트 처리 (Warning 해결)
+        const onJoinSuccess = (id: string) => {
+            console.log("방 입장 성공 신호 수신:", id);
+        };
+
+        // 3. 게임 시작 이벤트 처리
+        const onGameStarted = () => {
             navigate(`/game/${roomId}`);
-        });
+        };
+
+        // 4. 경고 방지용 빈 핸들러 (roomlist 등)
+        const onRoomList = () => {};
+
+        // 리스너 등록
+        connection.on("RoomUpdated", onRoomUpdated);
+        connection.on("JoinRoomSuccess", onJoinSuccess);
+        connection.on("GameStarted", onGameStarted);
+        connection.on("RoomList", onRoomList); 
 
         return () => {
+            // 리스너 해제
             connection.off("RoomUpdated");
+            connection.off("JoinRoomSuccess");
             connection.off("GameStarted");
+            connection.off("RoomList");
         };
     }, [roomId, navigate]);
 
@@ -85,9 +108,17 @@ const RoomPage: React.FC = () => {
         }
     };
 
-    if (!room) return <div className="room-container">불러오는 중...</div>;
+    if (!room) {
+        return (
+            <div className="room-container">
+                <h2 style={{ color: 'white' }}>방 데이터를 불러오는 중입니다...</h2>
+                <p style={{ color: 'white' }}>방 번호: {roomId}</p>
+            </div>
+        );
+    }
 
     const isHost = room.hostPlayerId === connection.connectionId;
+    const isStarted = room.isStarted ?? (room as any).IsStarted // 대소문자 혼용 방지
     // 🔴 현재 선택된 라운드는 서버 데이터(room.maxRounds)를 기준으로 함
     const currentRounds = room.maxRounds || 1;
 
@@ -121,18 +152,24 @@ const RoomPage: React.FC = () => {
 
                 <div className="section-title">참여 플레이어 ({room.players.length}/7)</div>
                 <div className="player-list">
-                    {room.players.map((player) => (
-                        <div 
-                            key={player.playerId} 
-                            className={`player-item ${player.playerId === connection.connectionId ? 'me' : ''}`}
-                        >
-                            <div className="player-info-content">
-                                <span className="status-dot"></span>
-                                <b>{player.name}</b> {player.playerId === connection.connectionId && "(나)"}
+                    {room.players.map((player) => {
+                        const isMe = player.playerId === connection.connectionId;
+                        return (
+                            <div 
+                                key={player.playerId} 
+                                className={`player-item ${isMe ? 'me' : ''}`}
+                                // 모든 플레이어 아이템의 기본 글자색을 하얀색(#ffffff)으로 고정
+                                style={{ color: '#ffffff' }}
+                            >
+                                <div className="player-info-content" style={{ color: '#ffffff' }}>
+                                    <span className="status-dot"></span>
+                                    <b style={{ color: '#ffffff' }}>{player.name}</b> 
+                                    {isMe && <span style={{ marginLeft: '4px', color: '#ffffff' }}>(나)</span>}
+                                </div>
+                                {player.playerId === room.hostPlayerId && <span className="host-icon">👑</span>}
                             </div>
-                            {player.playerId === room.hostPlayerId && <span className="host-icon">👑</span>}
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 <div className="action-area">

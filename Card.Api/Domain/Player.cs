@@ -18,4 +18,5 @@ public class Player
     // 점수 관리 (Score는 이번 라운드 점수, TotalScore는 누적용으로 사용)
     public int Score { get; set; } = 0;
     public int TotalScore { get; set; } = 0;
+    public int RoundTurnCount { get; set; } = 0;
 }

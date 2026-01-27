@@ -121,6 +121,11 @@ public class GameRoomService
         room.IsStarted = true;
         room.IsFinished = false;
 
+    // 전체 게임 시작 시에만 누적 점수 0으로 리셋
+    foreach (var p in room.Players) {
+        p.TotalScore = 0; 
+    }
+
         SetupRound(room); // 라운드 세팅 호출
     }
 
@@ -135,6 +140,7 @@ public class GameRoomService
             p.Hand.Clear();
             p.IsWaitingFinalWin = false;
             p.Score = 0; // 이번 라운드 점수 초기화
+            p.RoundTurnCount = 0; // 각 플레이어가 몇번쨰 턴인지 확인
 
             // 덱에서 직접 꺼내서 분배 (덱 수량 실시간 차감 반영)
             for (int i = 0; i < 5; i++)
@@ -267,50 +273,78 @@ public class GameRoomService
         return true; 
     }
 
+    private void StartNewRound(GameRoom room)
+    {
+        // 덱 다시 생성 및 셔플
+        room.Deck = CreateNewDeck(); 
+        room.DiscardPile.Clear();
+        room.IsRoundEnded = false;
+
+        // 플레이어들에게 카드 분배 (예: 2장씩)
+        foreach (var player in room.Players)
+        {
+            player.Hand.AddRange(room.Deck.Take(2));
+            room.Deck.RemoveRange(0, 2);
+        }
+        
+        // 첫 번째 플레이어 결정 및 카드 1장 더 주기
+        var firstPlayer = room.Players[0];
+        firstPlayer.Hand.Add(room.Deck[0]);
+        room.Deck.RemoveAt(0);
+        room.CurrentTurnPlayerId = firstPlayer.PlayerId;
+    }
+
     // 다음 라운드로 완전히 넘어가는 로직
     public void StartNextRound(GameRoom room)
     {
         if (room == null || !room.IsRoundEnded || room.IsFinished) return;
 
-        // 4. 라운드 번호 증가 및 상태 초기화
+        // 턴 설정을 위해 이전 라운드 승리자를 저장
+        string nextFirstPlayer = room.WinnerPlayerId;
+
+        // 라운드 번호 증가 및 상태 초기화
         room.CurrentRound++;      
         room.IsRoundEnded = false; 
         room.WinnerPlayerId = string.Empty;
         room.LastDiscardedCard = null;
         room.DiscardPile.Clear();
 
-        // 5. 새 카드 분배 (CreateNewDeck은 덱을 섞어서 반환한다고 가정)
+        // 새 카드 분배 (CreateNewDeck은 덱을 섞어서 반환한다고 가정)
         var deck = CreateNewDeck(); 
         foreach (var player in room.Players)
         {
             player.Hand = deck.Take(5).ToList(); 
             deck.RemoveRange(0, 5);
             player.Score = 0; // 새 라운드를 위해 라운드 점수만 초기화
+            player.RoundTurnCount = 0;
         }
         room.Deck = deck;
         
-        // 승리한 사람이 다음 라운드 첫 턴을 시작 (선택 사항)
-        room.CurrentTurnPlayerId = room.WinnerPlayerId; 
+        // 4. 승리한 사람이 다음 라운드 첫 턴 시작
+        // 만약 첫 라운드거나 승리자 정보가 없으면 방장으로 설정
+        room.CurrentTurnPlayerId = string.IsNullOrEmpty(nextFirstPlayer) 
+                                ? room.HostPlayerId 
+                                : nextFirstPlayer;
     }
 
-// 다음 라운드를 위해 카드와 덱만 초기화하는 메서드
-private void PrepareNextRound(GameRoom room)
-{
-    var newDeck = CreateNewDeck();
-    room.Deck = newDeck.OrderBy(a => Guid.NewGuid()).ToList();
-    
-    foreach (var p in room.Players)
+    // 다음 라운드를 위해 카드와 덱만 초기화하는 메서드
+    private void PrepareNextRound(GameRoom room)
     {
-        p.Hand.Clear();
-        p.IsWaitingFinalWin = false;
-    }
+        var newDeck = CreateNewDeck();
+        room.Deck = newDeck.OrderBy(a => Guid.NewGuid()).ToList();
+        
+        foreach (var p in room.Players)
+        {
+            p.Hand.Clear();
+            p.IsWaitingFinalWin = false;
+        }
 
-    CardDealer.DealInitialHands(room.Players, room.Deck, 5);
-    room.CurrentTurnPlayerId = room.Players[0].PlayerId;
-    room.LastDiscardedCard = null;
-    room.DiscardPile.Clear();
-    // IsStarted는 true 유지, IsFinished는 false 유지
-}
+        CardDealer.DealInitialHands(room.Players, room.Deck, 5);
+        room.CurrentTurnPlayerId = room.Players[0].PlayerId;
+        room.LastDiscardedCard = null;
+        room.DiscardPile.Clear();
+        // IsStarted는 true 유지, IsFinished는 false 유지
+    }
 
     // 승리 조건 체크 핵심 로직
     // 룰에 따른 승리 조건 체크 (패가 6장일 때 호출)
@@ -318,11 +352,12 @@ private void PrepareNextRound(GameRoom room)
     {
         if (hand == null || hand.Count < 6) return (false, "None", 0);
 
-        int jokerCount = hand.Count(c => c.Rank == "Joker" || c.Rank == "JK");
-        var normalCards = hand.Where(c => c.Rank != "Joker" && c.Rank != "JK").ToList();
+        // 조커 판정 기준 통일 (Rank가 Joker, JK, Joker1, Joker2 중 하나면 조커로 인정)
+        int jokerCount = hand.Count(c => IsJoker(c));
+        var normalCards = hand.Where(c => !IsJoker(c)).ToList();
         var sortedRanks = normalCards.Select(c => GetRankValue(c.Rank)).OrderBy(n => n).ToList();
 
-        // 1️⃣ 스트레이트 체크 (조커 메꾸기 포함)
+        // 1️⃣ 스트레이트 체크
         var (isStraight, straightSum) = GetStraightResult(sortedRanks, jokerCount);
         if (isStraight) return (true, "Straight", -straightSum);
 
@@ -330,7 +365,7 @@ private void PrepareNextRound(GameRoom room)
         int totalHighSum = sortedRanks.Sum() + (jokerCount * 13);
         if (totalHighSum >= 65) return (true, "HighSum", -totalHighSum);
 
-        // 3️⃣ 4장 + 2장 구성 (보상 -100점으로 가장 높음 -> 3+3보다 먼저 체크)
+        // 3️⃣ 4장 + 2장 구성 (보상 -100점)
         if (CanMakeGroups(hand, new[] { 4, 2 })) return (true, "FourAndTwo", -100);
 
         // 4️⃣ 3장 + 3장 구성 (보상 0점)
@@ -390,55 +425,78 @@ private void PrepareNextRound(GameRoom room)
     }
 
     // 2.1 & 3.1 가로채기 체크 (다른 유저가 카드를 냈을 때 호출)
-    public void CheckInterception(GameRoom room, string cardOwnerId, PlayingCard playedCard)
+    // void를 Task로 바꾸고 async를 추가합니다. (기존 호출부에서 await만 붙여주면 됩니다)
+    public async Task CheckInterception(GameRoom room, string cardOwnerId, PlayingCard playedCard)
     {
         foreach (var player in room.Players.Where(p => p.PlayerId != cardOwnerId))
         {
-            // [업데이트] 3.1 카드 2장 상태에서 가로채기 (조커 처리 강화)
+            // 1. 카드 2장 상태 가로채기
             if (player.Hand.Count == 2)
             {
-                // 조커가 있거나, 두 카드가 같은 숫자인 경우 (IsWaitingWinCondition의 로직을 여기에 직접 통합)
                 bool isWaiting = player.Hand.Any(c => c.Rank == "Joker" || c.Rank == "JK") || 
                                 (player.Hand[0].Rank == player.Hand[1].Rank);
 
                 if (isWaiting)
                 {
-                    // 상대가 낸 카드가 내 숫자와 같거나, 상대가 조커를 냈을 때 (조커는 무엇이든 가로챌 수 있음)
                     bool canIntercept = player.Hand.Any(c => c.Rank == playedCard.Rank) || 
-                                        playedCard.Rank == "Joker" || 
-                                        playedCard.Rank == "JK";
+                                        IsJoker(playedCard);
 
                     if (canIntercept)
                     {
-                        ApplyInterceptionWin(room, player, cardOwnerId, 30);
+                        // 바가지는 즉시 종료. 1초 대기 후 강제 승리 처리
+                        await Task.Delay(1000); 
+                        ApplyBagajiWin(room, player, cardOwnerId);
                         return;
                     }
                 }
             }
             
-            // 2.1 카드 5장 상태 가로채기 (조커 포함 3, 2 구성 체크)
+            // 2. 카드 5장 상태 가로채기
             if (player.Hand.Count == 5 && CanMakeGroups(player.Hand, new[] { 3, 2 }))
             {
-                // 내가 조커를 포함하여 3장 세트를 만들 수 있는 숫자를 상대가 냈을 때
-                // (이미 CanMakeGroups에서 조커 배분을 확인하므로, 여기선 간단히 랭크 매칭 확인)
                 var counts = player.Hand.Where(c => c.Rank != "Joker" && c.Rank != "JK")
-                                    .GroupBy(c => c.Rank)
-                                    .ToDictionary(g => g.Key, g => g.Count());
+                                        .GroupBy(c => c.Rank)
+                                        .ToDictionary(g => g.Key, g => g.Count());
                 
                 int jokers = player.Hand.Count(c => c.Rank == "Joker" || c.Rank == "JK");
 
-                // 상대가 낸 카드를 내가 가졌거나, 상대가 조커를 냈을 때
                 foreach (var rank in counts.Keys)
                 {
-                    // (내 해당 카드 장수 + 조커)가 3 이상이 되면 가로채기 가능
                     if ((playedCard.Rank == rank || playedCard.Rank == "Joker") && (counts[rank] + jokers >= 3))
                     {
-                        ApplyInterceptionWin(room, player, cardOwnerId, 30);
+                        await Task.Delay(1000);
                         return;
                     }
                 }
             }
         }
+    }
+
+    // 바가지 전용 종료 처리
+    private void ApplyBagajiWin(GameRoom room, Player winner, string loserId)
+    {
+        room.IsRoundEnded = true;
+        room.WinnerPlayerId = winner.PlayerId;
+        room.WinnerName = $"{winner.Name} (바가지)";
+
+        foreach (var p in room.Players)
+        {
+            if (p.PlayerId == winner.PlayerId)
+            {
+                p.Score = 0; // 바가지 씌운 사람은 0점
+            }
+            else if (p.PlayerId == loserId)
+            {
+                // 카드를 내서 바가지 당한 사람: 패 점수 + 30점
+                p.Score = CalculateFinalScore(p.Hand, false) + 30;
+            }
+            else
+            {
+                p.Score = CalculateFinalScore(p.Hand, false);
+            }
+            p.TotalScore += p.Score;
+        }
+        CheckAndEndFullGame(room);
     }
 
     private void ApplyInterceptionWin(GameRoom room, Player winner, string loserId, int penalty)
@@ -468,41 +526,56 @@ private void PrepareNextRound(GameRoom room)
         return hasJoker || isSameRank;
     }
 
+    private bool IsJoker(PlayingCard card)
+    {
+        if (card == null || string.IsNullOrEmpty(card.Rank)) return false;
+        string r = card.Rank.ToUpper();
+        return r == "JOKER" || r == "JK" || r == "JOKER1" || r == "JOKER2";
+    }
+
     // 도우미: 특정 조합(예: 4장, 2장)을 조커를 사용하여 만들 수 있는지 판별
+
     private bool CanMakeGroups(List<PlayingCard> hand, int[] required)
     {
-        int totalJokers = hand.Count(c => c.Rank == "Joker" || c.Rank == "JK");
-        var counts = hand.Where(c => c.Rank != "Joker" && c.Rank != "JK")
+        int totalJokers = hand.Count(c => IsJoker(c));
+        // 숫별로 몇 장씩 있는지 카운트 (예: 2가 4장이면 counts는 [4])
+        var counts = hand.Where(c => !IsJoker(c))
                         .GroupBy(c => c.Rank)
                         .Select(g => g.Count())
-                        .OrderByDescending(c => c)
                         .ToList();
 
-        // 필요한 그룹 크기를 큰 순서대로 정렬하여 조커를 효율적으로 배분 시도
+        // 조커 배분 최적화 로직 호출
         return CheckCombinationRecursive(counts, totalJokers, required.OrderByDescending(r => r).ToList());
     }
 
     private bool CheckCombinationRecursive(List<int> counts, int jokers, List<int> required)
     {
+        // 모든 그룹을 다 만들었으면 성공
         if (required.Count == 0) return true;
 
-        int target = required[0];
+        int target = required[0]; // 이번에 만들어야 할 목표 장수 (예: 4장)
         var remainingRequired = required.Skip(1).ToList();
 
-        // 방법 1: 기존에 있는 숫자 그룹에 조커를 보태서 타겟을 만듦
+        // 방법 1: 기존에 있는 숫자 그룹(counts) 중 하나를 선택해 조커를 보태서 target을 만듦
         for (int i = 0; i < counts.Count; i++)
         {
-            int need = Math.Max(0, target - counts[i]);
-            if (jokers >= need)
+            int has = counts[i];
+            int need = target - has;
+
+            // 이미 가지고 있는 장수가 목표보다 많아도(예: 4장 필요한데 5장 있음) 
+            // 족보 구성은 가능하므로 0개 필요로 처리
+            int actualNeed = Math.Max(0, need);
+
+            if (jokers >= actualNeed)
             {
                 var nextCounts = new List<int>(counts);
                 nextCounts.RemoveAt(i);
-                if (CheckCombinationRecursive(nextCounts, jokers - need, remainingRequired))
+                if (CheckCombinationRecursive(nextCounts, jokers - actualNeed, remainingRequired))
                     return true;
             }
         }
 
-        // 방법 2: 쌩판 새로운 그룹을 조커만으로 만듦 (예: 조커가 2장일 때 2장 그룹 하나 생성)
+        // 방법 2: 쌩판 새로운 그룹을 오직 조커만으로 만듦 (예: 조커가 2장일 때 '2장 그룹' 생성)
         if (jokers >= target)
         {
             if (CheckCombinationRecursive(new List<int>(counts), jokers - target, remainingRequired))
@@ -661,7 +734,7 @@ private void PrepareNextRound(GameRoom room)
         StartTurn(room);
     }
 
-    private void DiscardCards(GameRoom room, Player player, List<int> handIndexes)
+    public void DiscardCards(GameRoom room, Player player, List<int> handIndexes)
     {
         var sortedIndexes = handIndexes.Distinct().OrderByDescending(i => i).ToList();
         foreach (var index in sortedIndexes)
@@ -704,6 +777,10 @@ private void PrepareNextRound(GameRoom room)
             Color = "Black" 
         });
 
+        // 덱 셔플 로직
+        Random rnd = new Random();
+        deck = deck.OrderBy(x => rnd.Next()).ToList();
+
         return deck;
     }
 
@@ -720,6 +797,9 @@ private void PrepareNextRound(GameRoom room)
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null || room.Deck.Count == 0) return room;
 
+        // 플레이어 턴 횟수 확인하기(승리선언 하기위함)
+        player.RoundTurnCount++;
+
         // [수정] 5장뿐만 아니라 2장일 때도 뽑을 수 있도록 조건 완화 (혹은 조건 삭제)
         // 1장을 뽑으면 3장 또는 6장이 됨
         var newCard = room.Deck[0];
@@ -734,29 +814,33 @@ private void PrepareNextRound(GameRoom room)
     public GameRoom PlayCard(string roomId, string playerId, PlayingCard card)
     {
         var room = GetRoom(roomId);
+        // 1. 검증: 방이 없거나, 시작되지 않았거나, 이미 끝났거나, 내 턴이 아니면 무시
         if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId) 
             return room;
 
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null) return room;
 
-        var cardToPlay = player.Hand.FirstOrDefault(c => c.Suit == card.Suit && c.Rank == card.Rank);
+        // 2. 낼 카드가 실제 패에 있는지 확인
+        var cardToPlay = player.Hand.FirstOrDefault(c => 
+            (c.Suit == card.Suit && c.Rank == card.Rank) || 
+            (c.Rank == "Joker" && card.Rank == "Joker"));
         
         if (cardToPlay != null)
         {
+            // 3. 패에서 제거 및 바닥(DiscardPile)에 추가
             player.Hand.Remove(cardToPlay);
             room.LastDiscardedCard = cardToPlay;
             room.DiscardPile.Add(cardToPlay);
             
-            // 마지막 카드 확인 - 바가지 확인
+            // 4. 누가 마지막으로 액션을 했는지 기록 (뻥/바가지 판정용)
             room.LastActorPlayerId = playerId;
 
-            // [수정] 카드 버린 후 턴 넘기기
-            // 패가 2장(뽑기 전) -> 3장(뽑은 후) -> 2장(버린 후) 인 경우도 다음 턴으로
-            int currentIndex = room.Players.FindIndex(p => p.PlayerId == playerId);
-            int nextIndex = (currentIndex + 1) % room.Players.Count;
-            room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
+            // 🔥 [중요 수정] 여기서 턴을 넘기는 로직을 삭제했습니다.
+            // 이제 턴은 GameHub에서 Task.Delay(1500) 이후에 넘기거나,
+            // 누군가 '뻥'을 했을 때 강제로 변경하게 됩니다.
         }
+        
         return room;
     }
 
@@ -855,5 +939,15 @@ private void PrepareNextRound(GameRoom room)
         }
 
         return true;
+    }
+
+    // 전체 게임 종료 체크 공통 메서드
+    private void CheckAndEndFullGame(GameRoom room)
+    {
+        if (room.CurrentRound >= room.MaxRounds)
+        {
+            room.IsFinished = true;
+            room.IsStarted = false;
+        }
     }
 }

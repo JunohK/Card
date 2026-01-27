@@ -149,43 +149,93 @@ public class GameHub : Hub
             var room = _roomService.GetRoom(roomId);
             if (room == null || !room.IsStarted || room.IsFinished) return;
 
-            // 1. 카드 플레이 처리 (턴 교체 포함)
-            _roomService.PlayCard(roomId, Context.ConnectionId, card);
+            string cardOwnerId = Context.ConnectionId;
 
-            // 2. 가로채기 체크 전, 일단 현재 상태를 모든 인원에게 즉시 전파 (동기화 보장)
-            // 이걸 먼저 보내야 방장이 아닌 사람들도 "누가 카드를 냈다"는걸 압니다.
+            // 1. 현재 턴인 유저가 선택한 카드 1장을 버림 (서비스 호출)
+            // 서비스의 PlayCard 내부에서는 턴을 넘기지 않도록 수정된 상태여야 합니다.
+            _roomService.PlayCard(roomId, cardOwnerId, card);
+
+            // 2. 즉시 전송하여 바닥에 카드가 깔린 것을 모두에게 보여줌
             await Clients.Group(roomId).SendAsync("RoomUpdated", room);
 
-            // 3. 가로채기(Interception) 체크 로직
-            var interceptor = room.Players.FirstOrDefault(p => 
-                p.PlayerId != Context.ConnectionId && CheckCanIntercept(p, card));
+            // 3. 뻥(내 패에 동일 숫자 2장 보유) 가능 유저 체크
+            var canPung = room.Players.Any(p => p.PlayerId != cardOwnerId && CheckCanIntercept(p, card));
 
-            if (interceptor != null)
+            if (canPung)
             {
-                _roomService.DeclareInterceptionWin(room, interceptor, room.LastActorPlayerId);
-                
-                // 결과판은 데이터가 완전히 바뀐 후 전송
-                await Clients.Group(roomId).SendAsync("ShowResultBoard", room);
-                await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+                // 🔥 3초 대기: 다른 유저가 InterruptDiscard를 호출할 시간을 줌
+                await Task.Delay(3000); 
+
+                // 3초 후 체크: 아무도 뻥을 안 해서 턴이 그대로라면 그때 다음 사람으로 넘김
+                if (room.CurrentTurnPlayerId == cardOwnerId)
+                {
+                    MoveToNextTurn(room, cardOwnerId);
+                    await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+                }
             }
             else
             {
-                // 가로채기가 없을 때의 부가 효과 처리
-                var nextPlayer = room.Players.FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
-                if (nextPlayer != null && nextPlayer.Hand.Count == 2)
-                {
-                    if (nextPlayer.Hand[0].Rank == nextPlayer.Hand[1].Rank || nextPlayer.Hand.Any(c => c.Rank == "Joker"))
-                    {
-                        await Clients.Group(roomId).SendAsync("ShowWaitingMark", nextPlayer.PlayerId);
-                    }
-                }
-                // 마지막으로 다시 한 번 동기화 (턴이 넘어갔음을 알림)
+                // 뻥칠 사람이 없으면 즉시 다음 사람 턴으로
+                MoveToNextTurn(room, cardOwnerId);
                 await Clients.Group(roomId).SendAsync("RoomUpdated", room);
             }
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"PlayCard Error: {ex.Message}");
+            Console.WriteLine($"PlayCard Hub Error: {ex.Message}");
+        }
+    }
+
+    // 턴 이동 보조 메서드
+    private void MoveToNextTurn(GameRoom room, string currentPlayerId)
+    {
+        int currentIndex = room.Players.FindIndex(p => p.PlayerId == currentPlayerId);
+        int nextIndex = (currentIndex + 1) % room.Players.Count;
+        room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
+    }
+
+    // 🔥 [뻥 액션] B가 버튼을 클릭했을 때 호출
+    public async Task InterruptDiscard(string roomId)
+    {
+        try
+        {
+            var room = _roomService.GetRoom(roomId);
+            if (room == null || room.IsRoundEnded) return;
+
+            var targetCard = room.LastDiscardedCard; 
+            if (targetCard == null) return;
+
+            var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+            if (player == null) return;
+
+            // 1. 내 패에서 상대가 버린 카드와 같은 숫자의 인덱스 2개를 찾음
+            var handIndexes = player.Hand
+                .Select((card, index) => new { card, index })
+                .Where(x => x.card.Rank == targetCard.Rank || x.card.Rank == "Joker" || x.card.Rank == "JK")
+                .Take(2)
+                .Select(x => x.index)
+                .ToList();
+
+            if (handIndexes.Count >= 2)
+            {
+                // 2. 서비스의 DiscardCards를 호출하여 2장을 '버려진 카드 더미'로 이동
+                // (이 메서드 내부에서 room.DiscardPile.Add가 수행됨)
+                _roomService.DiscardCards(room, player, handIndexes);
+
+                // 3. 턴을 뻥 한 사람(나)으로 변경
+                room.CurrentTurnPlayerId = player.PlayerId;
+                player.RoundTurnCount++;    // 플레이어의 턴 횟수 확인(승리 선언 위함)
+
+                // 4. 상태 전파 (A가 버린 1장 + 내가 버린 2장이 바닥에 보임)
+                await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+                
+                // 5. 클라이언트에게 1장 더 버리라고 신호 보냄
+                await Clients.Caller.SendAsync("PungSuccess", "패에서 추가로 버릴 카드 1장을 선택하세요.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"InterruptDiscard Error: {ex.Message}");
         }
     }
 
@@ -250,6 +300,13 @@ public class GameHub : Hub
         var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
         if (updatedRoom != null)
         {
+            // 직접 플레이어를 찾아 턴 횟수 증가
+            var player = updatedRoom.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+            if (player != null)
+            {
+                player.RoundTurnCount++;
+            }
+            
             await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
         }
     }
@@ -305,63 +362,73 @@ public class GameHub : Hub
         }
     }
 
-    // 다음 라운드 시작 요청 처리
     public async Task RequestNextRound(string roomId)
     {
-        var room = _roomService.GetRoom(roomId);
-        if (room == null) return;
-
-        // 서버 데이터 갱신
-        _roomService.StartNextRound(room);
-
-        // 모든 플레이어의 화면을 새 게임 상태로 전환
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-        await Clients.Group(roomId).SendAsync("HideResultBoard"); // 전광판 닫기
-    }
-
-    public async Task GoToNextRound(string roomId)
-    {
-        var room = _roomService.GetRoom(roomId);
-        if (room == null || room.HostPlayerId != Context.ConnectionId) return;
-
-        if (!room.IsFinished && room.IsRoundEnded)
+        try 
         {
-            // 다음 라운드 번호 증가 및 카드 재분배
-            room.CurrentRound++;
-            // 서비스에 SetupRound를 public으로 하거나, 아래처럼 별도 처리 메서드 호출
-            _roomService.StartGame(roomId, room.MaxRounds); // 재시작 로직 활용
+            var room = _roomService.GetRoom(roomId);
+            if (room == null) return;
+
+            // 방장만 다음 라운드를 시작할 수 있도록 권한 체크 추가
+            if (room.HostPlayerId != Context.ConnectionId)
+            {
+                await Clients.Caller.SendAsync("ErrorMessage", "방장만 다음 라운드를 시작할 수 있습니다.");
+                return;
+            }
+
+            // 1. 서비스에서 덱 생성, '셔플', 카드 분배, 턴 설정을 모두 수행
+            _roomService.StartNextRound(room);
+
+            // 2. 모든 플레이어에게 전광판을 닫으라고 명령
+            await Clients.Group(roomId).SendAsync("HideResultBoard");
+
+            // 3. 갱신된 방 상태(새 패, 새로운 턴 등)를 전송
+            // GetRoom에서 사용하는 익명 객체 구조와 동일하게 보내야 클라이언트 UI가 깨지지 않습니다.
+            var roomState = await GetRoom(roomId); 
+            await Clients.Group(roomId).SendAsync("RoomUpdated", roomState);
             
-            await Clients.Group(roomId).SendAsync("GameStarted", room);
+            Console.WriteLine($"Next Round Started: {room.CurrentRound}. Turn: {room.CurrentTurnPlayerId}");
+        }
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("ErrorMessage", "라운드 전환 중 오류: " + ex.Message);
         }
     }
+
+    // public async Task GoToNextRound(string roomId)
+    // {
+    //     var room = _roomService.GetRoom(roomId);
+    //     if (room == null || room.HostPlayerId != Context.ConnectionId) return;
+
+    //     if (!room.IsFinished && room.IsRoundEnded)
+    //     {
+    //         // 다음 라운드 번호 증가 및 카드 재분배
+    //         room.CurrentRound++;
+    //         // 서비스에 SetupRound를 public으로 하거나, 아래처럼 별도 처리 메서드 호출
+    //         _roomService.StartGame(roomId, room.MaxRounds); // 재시작 로직 활용
+            
+    //         await Clients.Group(roomId).SendAsync("GameStarted", room);
+    //     }
+    // }
     
     // 기권
     public async Task GiveUp(string roomId)
     {
-        // 1. 일단 서비스 로직을 실행해서 DB(메모리) 값을 먼저 바꿉니다.
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
 
-        if (room.IsFinished) 
-        {
-            _roomService.CompleteGame(roomId); // 내부에서 IsStarted = false 처리 완료
-        }
-        else 
-        {
-            _roomService.GiveUpGame(roomId, Context.ConnectionId); // 기권 처리
-        }
+        // 1. 기권 처리 (IsFinished = true 처리됨)
+        _roomService.GiveUpGame(roomId, Context.ConnectionId);
 
-        // 2. 🔴 중요: 상태가 변경된 '최신' 객체를 다시 가져옵니다.
-        var updatedRoom = _roomService.GetRoom(roomId);
+        // 2. ⭐ 명시적으로 게임 시작 상태를 해제 (대기실 복귀용)
+        room.IsStarted = false; 
 
-        // 3. 최신 데이터를 전송합니다. (이제 IsStarted가 false인 것이 보장됨)
-        await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+        // 3. 최신 데이터 전송
+        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
         
-        // 4. 안전장치: 아예 명시적 신호를 하나 더 보냅니다.
-        if (updatedRoom != null && !updatedRoom.IsStarted)
-        {
-            await Clients.Group(roomId).SendAsync("ExitToRoom", roomId);
-        }
+        // 4. 전광판을 띄우는 대신 바로 나가게 하고 싶다면 이 신호를 보냄
+        // 만약 결과 확인 후 나가게 하고 싶다면 "GameTerminated" 신호를 사용
+        await Clients.Group(roomId).SendAsync("GameTerminated", roomId);
     }
 
     // ✅ 채팅

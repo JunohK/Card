@@ -1,0 +1,118 @@
+/* 1. 브라우저 기본 여백 초기화 및 전체 높이 확보 */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    background-color: #0f172a; /* 배경색이 끊기지 않게 body에도 적용 */
+}
+
+/* 2. 로그인 컨테이너 - 화면 전체를 사용하도록 설정 */
+.login-container {
+    background-color: #0f172a;
+    min-height: 100vh;
+    width: 100vw; /* 화면 전체 너비 강제 */
+    display: flex;
+    align-items: center;      /* 세로 중앙 */
+    justify-content: center;   /* 가로 중앙 */
+    box-sizing: border-box;
+    position: absolute;        /* 혹시 모를 상위 요소 영향 차단 */
+    top: 0;
+    left: 0;
+}
+
+/* 3. 로그인 카드 - 내부 요소 정렬 */
+.login-card {
+    background-color: #1e293b;
+    width: 90%;             /* 모바일 대응 */
+    max-width: 360px;       /* 최대 너비 제한 */
+    padding: 2.5rem 2rem;
+    border-radius: 1.25rem;
+    border: 1px solid #334155;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    align-items: center;    /* 카드 내부 요소들 중앙 정렬 */
+}
+
+.login-title {
+    color: #38bdf8;
+    font-size: 1.75rem;
+    font-weight: 900;
+    margin-bottom: 2rem;
+    text-align: center;
+}
+
+/* 4. 폼 영역 - 카드의 너비에 맞게 꽉 채움 */
+form {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.form-group {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.form-label {
+    color: #94a3b8;
+    font-size: 0.8rem;
+    font-weight: bold;
+    margin-bottom: 0.5rem;
+    text-align: left;
+}
+
+.form-input {
+    width: 100%;
+    box-sizing: border-box; /* 패딩이 너비에 포함되게 */
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.75rem;
+    padding: 0.8rem 1rem;
+    color: #f1f5f9;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus {
+    border-color: #38bdf8;
+}
+
+.login-submit-btn {
+    width: 100%;
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    padding: 0.9rem;
+    border-radius: 0.75rem;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.login-submit-btn:hover {
+    background-color: #3b82f6;
+}
+
+.signup-link-wrapper {
+    width: 100%;
+    margin-top: 1.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid #334155;
+    text-align: center;
+}
+
+.signup-btn {
+    width: 100%;
+    background: transparent;
+    border: 1px solid #475569;
+    color: #94a3b8;
+    padding: 0.75rem;
+    border-radius: 0.75rem;
+    cursor: pointer;
+    margin-top: 0.5rem;
+}

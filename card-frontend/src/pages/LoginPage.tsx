@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
+import "./LoginPage.css";
 
 export default function LoginPage() {
     const navigate = useNavigate();
@@ -19,66 +20,72 @@ export default function LoginPage() {
         try {
             await login(nickname, password);
             navigate("/lobby");
-                } catch (err: any) {
+        } catch (err: any) {
             setError(err.message || "로그인 실패");
-                } finally {
+        } finally {
             setLoading(false);
-                }
-        };
+        }
+    };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-            <form
-                onSubmit={handleLogin}
-                className="bg-white p-8 rounded-2xl shadow-md w-96"
-            >
-                <h1 className="text-2xl font-bold mb-6 text-center">로그인</h1>
+        <div className="login-container">
+            <div className="login-card">
+                <h1 className="login-title">CARD GAME</h1>
 
-                <div className="mb-4">
-                    <label className="block mb-1 text-sm font-mediu">닉네임</label>
-                    <input
-                        type="text"
-                        value={nickname}
-                        onChange={(e) => setNickname(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring"
-                        required
-                    />
-                </div>
+                <form onSubmit={handleLogin}>
+                    <div className="form-group">
+                        <label className="form-label">Nickname</label>
+                        <input
+                            type="text"
+                            value={nickname}
+                            onChange={(e) => setNickname(e.target.value)}
+                            className="form-input"
+                            placeholder="닉네임을 입력하세요"
+                            required
+                            autoFocus
+                        />
+                    </div>
 
-                <div className="mb-4">
-                    <label className="block mb-1 text-sm font-medium">비밀번호</label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring"
-                        required
-                    />
-                </div>
+                    <div className="form-group">
+                        <label className="form-label">Password</label>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="form-input"
+                            placeholder="비밀번호를 입력하세요"
+                            required
+                        />
+                    </div>
 
-                {error && (
-                    <p className="text-red-500 text-sm mb-4 text-center">{error}</p>
-                )}
+                    {error && (
+                        <div style={{ color: '#f87171', fontSize: '0.8rem', textAlign: 'center' }}>
+                            {error}
+                        </div>
+                    )}
 
-                <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-                >
-                    {loading ? "로그인 중..." : "로그인"}
-                </button>
+                    <button
+                        type="submit"
+                        disabled={loading}
+                        className="login-submit-btn"
+                    >
+                        {loading ? "AUTHENTICATING..." : "LOGIN"}
+                    </button>
+                </form>
 
-                <p className="text-sm text-center mt-4 text-gray-600">
+                <div className="signup-link-wrapper">
+                    <p style={{ color: '#64748b', fontSize: '0.8rem', margin: '0 0 0.75rem 0' }}>
+                        아직 계정이 없으신가요?
+                    </p>
                     <button 
                         type="button"
-                        // className="text-blue-600 cursor-pointer hover:underline"
                         onClick={() => navigate("/signup")}
-                        className="mt-4 w-full border py-2 rounded-lg"
+                        className="signup-btn"
                     >
-                        회원가입
+                        CREATE ACCOUNT
                     </button>
-                </p>
-            </form>
+                </div>
+            </div>
         </div>
-    )
+    );
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { connection, ensureConnection } from "../signalr/connection";
+import "./LobbyPage.css";
 
 type RoomSummary = {
     roomId: string;
@@ -35,7 +36,6 @@ export default function LobbyPage() {
             });
             connection.on("RoomList", (rooms) => mounted && setRooms(rooms));
             
-            // [중요] 방 생성 성공 시 로직
             connection.on("RoomCreated", (roomId) => {
                 if (mounted) {
                     const pending = sessionStorage.getItem("pending_pwd");
@@ -47,7 +47,6 @@ export default function LobbyPage() {
                 }
             });
 
-            // [중요] 방 입장 성공 시 로직
             connection.on("JoinRoomSuccess", (roomId) => {
                 if (mounted) navigate(`/room/${roomId}`);
             });
@@ -76,7 +75,6 @@ export default function LobbyPage() {
         if (!title.trim() || connection.state !== "Connected") return;
         try {
             const pwd = password.trim() === "" ? null : password;
-            // 방 ID를 받기 전 임시 저장
             if (pwd) sessionStorage.setItem("pending_pwd", pwd);
             
             await connection.invoke("CreateRoom", title, pwd);
@@ -102,7 +100,6 @@ export default function LobbyPage() {
         if (connection.state !== "Connected") return;
         try {
             const pwdToSend = password || "";
-            // RoomPage에서 꺼내 쓸 수 있도록 저장
             sessionStorage.setItem(`room_pwd_${roomId}`, pwdToSend);
             await connection.invoke("JoinRoom", roomId, pwdToSend === "" ? null : pwdToSend);
         } catch (err: any) {
@@ -118,75 +115,133 @@ export default function LobbyPage() {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-            <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm p-6 border border-slate-200">
-                        <div className="flex justify-between items-center mb-6">
-                            <div>
-                                <h1 className="text-2xl font-bold text-slate-800">게임 로비</h1>
-                                <p className="text-sm text-slate-500">반갑습니다, <span className="font-semibold text-blue-600">{myName || "사용자"}</span>님!</p>
+        <div className="lobby-container">
+            <div className="lobby-wrapper">
+                
+                {/* 메인 섹션: 방 목록 */}
+                <div className="lobby-card">
+                    <header className="lobby-header">
+                        <div className="lobby-title-text">
+                            <h1>LOBBY</h1>
+                            <p>Player: <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{myName || "Loading..."}</span></p>
+                        </div>
+                        <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
+                            LOGOUT
+                        </button>
+                    </header>
+
+                    <section className="room-list-header">
+                        <h2 style={{ margin: 0, fontSize: '1.25rem' }}>방 목록</h2>
+                        <button 
+                            className="create-room-btn" 
+                            onClick={() => setShowCreate(true)} 
+                            disabled={!connected}
+                        >
+                            + NEW ROOM
+                        </button>
+                    </section>
+
+                    <div className="room-grid">
+                        {rooms.length === 0 ? (
+                            <div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '3rem', color: '#64748b', border: '2px dashed #334155', borderRadius: '1rem' }}>
+                                생성된 방이 없습니다.
                             </div>
-                            <button onClick={() => { logout(); navigate("/login"); }} className="px-4 py-2 text-sm font-medium text-red-500 hover:bg-red-50 rounded-lg transition-colors">로그아웃</button>
-                        </div>
-                        <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-lg font-bold text-slate-700">참여 가능한 방</h2>
-                            <button onClick={() => setShowCreate(true)} disabled={!connected} className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl font-bold shadow-md disabled:bg-slate-300">+ 방 만들기</button>
-                        </div>
-                        <div className="grid gap-3">
-                            {rooms.length === 0 ? (
-                                <div className="text-center py-12 text-slate-400 border-2 border-dashed border-slate-100 rounded-2xl">현재 개설된 방이 없습니다.</div>
-                            ) : (
-                                rooms.map(room => (
-                                    <div key={room.roomId} className="flex justify-between items-center p-4 bg-slate-50 rounded-xl border border-slate-100">
-                                        <div>
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-bold text-slate-700">{room.title}</span>
-                                                {room.isLocked && <span>🔒</span>}
-                                            </div>
-                                            <span className="text-xs text-slate-500">인원: {room.playerCount}명</span>
+                        ) : (
+                            rooms.map(room => (
+                                <div key={room.roomId} className="room-item">
+                                    <div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '1.1rem', marginBottom: '4px' }}>
+                                            {room.title} {room.isLocked && "🔒"}
                                         </div>
-                                        <button onClick={() => handleJoinClick(room)} disabled={!connected || room.isStarted} className="bg-white text-blue-600 border border-blue-200 px-4 py-1.5 rounded-lg text-sm font-bold">
-                                            {room.isStarted ? "게임중" : "입장"}
-                                        </button>
+                                        <div style={{ fontSize: '0.8rem', color: '#38bdf8', fontWeight: 'bold' }}>
+                                            PLAYERS: {room.playerCount}/7
+                                        </div>
                                     </div>
-                                ))
-                            )}
-                        </div>
+                                    <button 
+                                        className="join-btn" 
+                                        onClick={() => handleJoinClick(room)}
+                                        disabled={!connected || room.isStarted}
+                                    >
+                                        {room.isStarted ? "IN GAME" : "JOIN"}
+                                    </button>
+                                </div>
+                            ))
+                        )}
                     </div>
                 </div>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col h-[600px]">
-                    <div className="p-4 border-b border-slate-100 font-bold text-slate-700 flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></span> 전체 채팅
+
+                {/* 사이드 섹션: 채팅 */}
+                <div className="lobby-card chat-section">
+                    <div className="chat-status">
+                        <div className="status-dot" style={{ backgroundColor: connected ? '#22c55e' : '#ef4444' }}></div>
+                        CHAT
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-2">
-                        {messages.map((m, i) => <div key={i} className="text-sm p-2 bg-slate-50 rounded-lg border border-slate-100">{m}</div>)}
+                    
+                    <div className="chat-messages">
+                        {messages.map((m, i) => {
+                            const [user, msg] = m.split(" : ");
+                            const isMe = user === myName;
+                            return (
+                                <div key={i} className="chat-bubble" style={{ 
+                                    alignSelf: isMe ? 'flex-end' : 'flex-start',
+                                    backgroundColor: isMe ? '#2563eb' : '#334155',
+                                    color: 'white',
+                                    borderColor: isMe ? '#3b82f6' : '#475569'
+                                }}>
+                                    <div style={{ fontSize: '0.7rem', opacity: 0.8, marginBottom: '2px' }}>{user}</div>
+                                    <div>{msg}</div>
+                                </div>
+                            );
+                        })}
                     </div>
-                    <div className="p-4 bg-slate-50 rounded-b-2xl flex gap-2">
-                        <input className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none" placeholder="메시지..." value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendMessage()} />
-                        <button onClick={sendMessage} disabled={!connected} className="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-bold">전송</button>
+
+                    <div className="chat-input-area">
+                        <input 
+                            className="chat-input" 
+                            placeholder="Type a message..." 
+                            value={input} 
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                        />
+                        <button 
+                            className="join-btn" 
+                            style={{ padding: '0.5rem' }} 
+                            onClick={sendMessage}
+                            disabled={!connected}
+                        >
+                            SEND
+                        </button>
                     </div>
                 </div>
             </div>
 
+            {/* 방 생성 모달 */}
             {showCreate && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setShowCreate(false)}></div>
-                    <div className="relative bg-white w-full max-w-md rounded-2xl shadow-2xl p-8">
-                        <h2 className="text-2xl font-bold text-slate-800 mb-6">새로운 방 만들기</h2>
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-600 mb-1">방 제목</label>
-                                <input className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none" value={title} onChange={e => setTitle(e.target.value)} autoFocus />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-semibold text-slate-600 mb-1">비밀번호 (선택)</label>
-                                <input className="w-full border border-slate-200 rounded-xl px-4 py-3 outline-none" type="password" value={password} onChange={e => setPassword(e.target.value)} />
-                            </div>
+                <div className="modal-overlay">
+                    <div className="modal-content">
+                        <h2 style={{ color: '#38bdf8', marginTop: 0 }}>Create Room</h2>
+                        <div style={{ marginBottom: '1rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem', color: '#94a3b8' }}>TITLE</label>
+                            <input 
+                                className="chat-input" 
+                                style={{ width: '100%', boxSizing: 'border-box' }}
+                                value={title}
+                                onChange={e => setTitle(e.target.value)}
+                            />
                         </div>
-                        <div className="flex gap-3 mt-8">
-                            <button onClick={() => setShowCreate(false)} className="flex-1 px-4 py-3 border border-slate-200 text-slate-500 font-bold rounded-xl">취소</button>
-                            <button onClick={createRoom} className="flex-1 px-4 py-3 bg-blue-600 text-white font-bold rounded-xl">방 만들기</button>
+                        <div style={{ marginBottom: '2rem' }}>
+                            <label style={{ display: 'block', fontSize: '0.8rem', marginBottom: '0.5rem', color: '#94a3b8' }}>PASSWORD (OPTIONAL)</label>
+                            <input 
+                                className="chat-input" 
+                                style={{ width: '100%', boxSizing: 'border-box' }}
+                                type="password"
+                                value={password}
+                                onChange={e => setPassword(e.target.value)}
+                            />
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button className="logout-btn" style={{ flex: 1 }} onClick={() => setShowCreate(false)}>CANCEL</button>
+                            <button className="create-room-btn" style={{ flex: 1 }} onClick={createRoom}>CREATE</button>
                         </div>
                     </div>
                 </div>
