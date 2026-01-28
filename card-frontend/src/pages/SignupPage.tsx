@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import "../css/SignupPage.css"; // CSS 파일 경로
 
 export default function SignupPage() {
     const navigate = useNavigate();
@@ -50,49 +51,51 @@ export default function SignupPage() {
     };
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-zinc-950 text-white">
-            <form
-                onSubmit={handleSubmit}
-                className="w-full max-w-sm bg-zinc-900 p-8 rounded-2xl shadow-lg space-y-4"
-            >
-                <h1 className="text-2xl font-bold text-center">회원가입</h1>
+        <div className="signup-wrapper">
+            <form onSubmit={handleSubmit} className="signup-card">
+                <div className="signup-header">
+                    <h1 className="signup-title">SIGN UP</h1>
+                    <p className="signup-subtitle">새로운 플레이어 등록</p>
+                </div>
 
-                <input
-                    type="text"
-                    placeholder="닉네임"
-                    value={nickname}
-                    onChange={e => setNickname(e.target.value)}
-                    className="w-full p-3 rounded-lg bg-zinc-800 outline-none"
-                />
-                <input
-                    type="password"
-                    placeholder="비밀번호"
-                    value={password}
-                    onChange={e => setPassword(e.target.value)}
-                    className="w-full p-3 rounded-lg bg-zinc-800 outline-none"
-                />
+                <div className="input-group">
+                    <input
+                        type="text"
+                        placeholder="닉네임"
+                        value={nickname}
+                        onChange={e => setNickname(e.target.value)}
+                        className="signup-input"
+                    />
+                    <input
+                        type="password"
+                        placeholder="비밀번호"
+                        value={password}
+                        onChange={e => setPassword(e.target.value)}
+                        className="signup-input"
+                    />
+                </div>
 
-                {error && <p className="text-red-400 text-sm">{error}</p>}
-                {success && <p className="text-green-400 text-sm">회원가입 완료</p>}
+                {error && <p className="status-msg error">{error}</p>}
+                {success && <p className="status-msg success">회원가입 완료! 로그인 페이지로 이동합니다.</p>}
 
-                <div className="flex gap-4">
+                <div className="button-group row">
                     <button
                         type="submit"
                         disabled={loading}
-                        className="flex-1 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 transition disabled:opacity-50"
+                        className="btn btn-primary"
                     >
-                        {loading ? "처리 중..." : "회원가입"}
+                        {loading ? "처리 중..." : "가입하기"}
                     </button>
 
                     <button
                         type="button"
                         onClick={() => navigate("/login")}
-                        className="flex-1 py-3 rounded-xl bg-zinc-700 hover:bg-zinc-600 transition"
+                        className="btn btn-secondary"
                     >
-                        뒤로
+                        취소
                     </button>
                 </div>
             </form>
         </div>
-    )
+    );
 }

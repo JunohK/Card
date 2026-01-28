@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { connection } from "../signalr/connection";
-import "./GamePage.css";
+import "../css/GamePage.css";
 
 const ENEMY_POSITIONS = [
     { top: '40%', left: '10%' }, { top: '20%', left: '25%' },
@@ -17,6 +17,9 @@ export default function GamePage() {
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [lastDrawnCardKey, setLastDrawnCardKey] = useState<string | null>(null);
     
+    // ✅ 에러 메시지 처리를 위한 상태 추가
+    const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
     const myId = connection.connectionId;
     const prevHandRef = useRef<string[]>([]);
     const isSubscribed = useRef(false);
@@ -107,7 +110,13 @@ export default function GamePage() {
             connection.on("HideResultBoard", onHideResultBoard);
             connection.on("GameTerminated", onGameTerminated);
             connection.on("ExitToRoom", onExitToRoom);
-            connection.on("ErrorMessage", (msg) => alert(msg));
+            
+            // ✅ 기존 alert(msg) 대신 커스텀 팝업 상태 업데이트로 변경
+            connection.on("ErrorMessage", (msg) => {
+                setErrorMsg(msg);
+                setTimeout(() => setErrorMsg(null), 3000); 
+            });
+            
             isSubscribed.current = true;
         }
 
@@ -194,18 +203,41 @@ export default function GamePage() {
     );
 
     const checkCanPung = () => {
+        // 1. 기본 조건: 내 손에 카드가 5장일 때만 가능
         const currentHandCount = myHand.length;
         if (currentHandCount !== 5) return false;
-        if (isMyTurn) return false; 
+
+        // 2. 바닥에 버려진 카드가 있어야 함
         if (!lastDiscarded) return false; 
-        const targetRank = (lastDiscarded.rank || lastDiscarded.Rank)?.toString().toUpperCase();
-        if (!targetRank || targetRank === "JOKER" || targetRank === "JK") return false;
 
-        const sameRankCount = myHand.filter((c: any) => 
-            (c.rank || c.Rank)?.toString().toUpperCase() === targetRank
-        ).length;
+        // 3. 자가 뻥 방지: 내가 버린 카드는 내가 뻥 할 수 없음
+        const lastActorId = game?.lastActorPlayerId || game?.LastActorPlayerId;
+        if (lastActorId && String(lastActorId) === String(myId)) {
+            return false; 
+        }
 
-        return sameRankCount >= 2; 
+        // 4. 내 턴이 아닐 때만 가능
+        if (isMyTurn) return false; 
+
+        // 5. 비교 대상(상대가 버린 카드)의 숫자 추출 (대소문자 처리 강화)
+        const discardedRank = (lastDiscarded.rank || lastDiscarded.Rank)?.toString().toUpperCase();
+        if (!discardedRank) return false;
+
+        // 6. 내 손패 필터링 (일반 숫자 매칭 + 조커 포함)
+        const sameRankCards = myHand.filter((c: any) => {
+            const myCardRank = (c.rank || c.Rank)?.toString().toUpperCase();
+            
+            // 조건 1: 상대가 버린 카드 숫자와 내 카드의 숫자가 정확히 일치
+            const isMatch = myCardRank === discardedRank;
+            
+            // 조건 2: 내 카드가 조커(JK 또는 JOKER)인 경우 (숫자 상관없이 뻥 재료가 됨)
+            const isJoker = myCardRank === "JK" || myCardRank === "JOKER";
+            
+            return isMatch || isJoker;
+        });
+
+        // 7. 위 조건에 부합하는 카드가 내 손에 2장 이상 있으면 '뻥' 가능
+        return sameRankCards.length >= 2; 
     };
 
     const canPung = checkCanPung();
@@ -231,6 +263,18 @@ export default function GamePage() {
                 .discard-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 9999; }
                 .discard-modal-content { background: #2c3e50; width: 80%; max-width: 600px; max-height: 80vh; overflow-y: auto; padding: 20px; border-radius: 12px; border: 1px solid #34495e; }
             `}</style>
+
+            {/* 🔴 조그만 에러 알림 팝업 UI 추가 */}
+            {errorMsg && (
+                <div style={{
+                    position: 'fixed', top: '15%', left: '50%', transform: 'translateX(-50%)',
+                    backgroundColor: 'rgba(231, 76, 60, 0.95)', color: 'white', padding: '12px 25px',
+                    borderRadius: '50px', zIndex: 10001, fontWeight: 'bold', boxShadow: '0 4px 15px rgba(0,0,0,0.4)',
+                    fontSize: '1rem', border: '2px solid rgba(255,255,255,0.2)'
+                }}>
+                    ⚠️ {errorMsg}
+                </div>
+            )}
 
             <button className="rule-btn-fixed" onClick={openRules}>📜 게임 족보</button>
 
@@ -330,17 +374,48 @@ export default function GamePage() {
                 </div>
             </div>
 
-            {showRoundResult && (
+            {showRoundResult && !game.isFinished && (
                 <div className="discard-modal-overlay">
                     <div className="discard-modal-content" style={{ textAlign: 'center' }}>
-                        <h2 style={{ color: '#f1c40f' }}>ROUND RESULT</h2>
-                        <div style={{ margin: '20px 0' }}>
-                            {players.map((p: any) => (
-                                <div key={p.playerId || p.PlayerId} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px', borderBottom: '1px solid #444' }}>
-                                    <span>{p.name || p.Name}</span>
-                                    <span>{p.totalScore ?? p.TotalScore} 점</span>
-                                </div>
-                            ))}
+                        <h2 style={{ color: '#f1c40f', marginBottom: '20px' }}>ROUND RESULT</h2>
+                        
+                        <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(241, 196, 15, 0.1)', borderRadius: '8px', border: '1px solid #f1c40f' }}>
+                            <span style={{ color: '#f1c40f', fontWeight: 'bold' }}>판정 결과: </span>
+                            <span style={{ color: '#ffffff', fontSize: '1.2rem', fontWeight: 'bold', marginLeft: '8px' }}>
+                                {game.lastWinType || game.LastWinType || "족보 확인 중..."}
+                            </span>
+                        </div>
+
+                        <div style={{ margin: '20px 0', color: 'white' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '1px solid #555' }}>
+                                        <th style={{ padding: '10px' }}>플레이어</th>
+                                        <th style={{ padding: '10px' }}>획득 점수</th>
+                                        <th style={{ padding: '10px' }}>누적 점수</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {players.map((p: any) => {
+                                        const currentScore = p.score !== undefined ? p.score : (p.Score ?? 0);
+                                        return (
+                                            <tr key={p.playerId || p.PlayerId} style={{ borderBottom: '1px solid #444' }}>
+                                                <td style={{ padding: '10px' }}>{p.name || p.Name}</td>
+                                                <td style={{ 
+                                                    padding: '10px', 
+                                                    color: currentScore <= 0 ? '#2ecc71' : '#e74c3c',
+                                                    fontWeight: 'bold'
+                                                }}>
+                                                    {currentScore > 0 ? `+${currentScore}` : currentScore}
+                                                </td>
+                                                <td style={{ padding: '10px' }}>
+                                                    {p.totalScore !== undefined ? p.totalScore : (p.TotalScore ?? 0)} 점
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
+                                </tbody>
+                            </table>
                         </div>
                         {isHost ? (
                             <button onClick={handleNextRoundRequest} style={{ padding: '15px 30px', background: '#27ae60', color: 'white', border: 'none', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}>
@@ -353,34 +428,54 @@ export default function GamePage() {
                 </div>
             )}
 
-            {isFinished && (
-                <div className="discard-modal-overlay" style={{ zIndex: 10001 }}>
-                    <div className="discard-modal-content" style={{ textAlign: 'center', border: (game.winnerName || game.WinnerName || "").includes("(기권)") ? '2px solid #e74c3c' : '2px solid #f1c40f' }}>
-                        {(game.winnerName || game.WinnerName || "").includes("(기권)") ? (
-                            <>
-                                <h1 style={{ color: '#e74c3c' }}>GIVE UP</h1>
-                                <p style={{ color: 'white', margin: '20px 0', fontSize: '1.2rem' }}>
-                                    기권: {(game.winnerName || game.WinnerName).replace("(기권)", "").trim()}
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <h1 style={{ color: '#f1c40f' }}>GAME OVER</h1>
-                                <p style={{ color: 'white', margin: '20px 0', fontSize: '1.2rem' }}>
-                                    최종 우승자: {game.winnerName || game.WinnerName}
-                                </p>
-                            </>
-                        )}
+            {/* 2. 최종 결과창: game.isFinished가 true일 때만 표시 (1라운드 게임인 경우 바로 이 창이 뜸) */}
+            {game.isFinished && (
+                <div className="discard-modal-overlay" style={{ backgroundColor: 'rgba(0, 0, 0, 0.9)', zIndex: 2000 }}>
+                    <div className="discard-modal-content" style={{ textAlign: 'center', border: '2px solid #f1c40f', padding: '40px' }}>
+                        <h1 style={{ color: '#f1c40f', fontSize: '2.5rem', marginBottom: '10px' }}>
+                            {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "GIVE UP" : "GAME OVER"}
+                        </h1>
+                        
+                        <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(241, 196, 15, 0.1)', borderRadius: '12px' }}>
+                            <span style={{ color: '#bdc3c7', display: 'block', marginBottom: '5px' }}>
+                                {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "기권 승리자" : "최종 우승자"}
+                            </span>
+                            <span style={{ color: '#ffffff', fontSize: '2rem', fontWeight: 'bold' }}>
+                                👑 {game.winnerName || game.WinnerName || "-"}
+                            </span>
+                            <div style={{ color: '#f1c40f', marginTop: '10px' }}>
+                                판정 족보: {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "상대방 기권" : (game.lastWinType || game.LastWinType || "게임 종료")}
+                            </div>
+                        </div>
+
+                        <div style={{ margin: '20px 0', maxHeight: '300px', overflowY: 'auto' }}>
+                            <table style={{ width: '100%', color: 'white', borderCollapse: 'collapse' }}>
+                                <thead>
+                                    <tr style={{ borderBottom: '2px solid #f1c40f', height: '40px' }}>
+                                        <th>순위</th>
+                                        <th>플레이어</th>
+                                        <th>최종 총점</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {[...(game.players || [])]
+                                        .sort((a, b) => (a.totalScore ?? a.TotalScore ?? 0) - (b.totalScore ?? b.TotalScore ?? 0))
+                                        .map((p, index) => (
+                                            <tr key={p.playerId || p.PlayerId} style={{ height: '45px', borderBottom: '1px solid #333' }}>
+                                                <td>{index + 1}위</td>
+                                                <td>{p.name || p.Name}</td>
+                                                <td>{p.totalScore ?? p.TotalScore} 점</td>
+                                            </tr>
+                                        ))}
+                                </tbody>
+                            </table>
+                        </div>
+
                         <button 
                             onClick={handleReturnToRoom} 
-                            style={{ 
-                                width: '100%', padding: '15px', 
-                                background: (game.winnerName || game.WinnerName || "").includes("(기권)") ? '#c0392b' : '#27ae60', 
-                                color: 'white', border: 'none', borderRadius: '10px', 
-                                fontWeight: 'bold', cursor: 'pointer', marginTop: '20px' 
-                            }}
+                            style={{ padding: '15px 50px', background: '#f1c40f', color: '#000', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
                         >
-                            {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "로비로 이동" : "대기실로 복귀"}
+                            확인
                         </button>
                     </div>
                 </div>

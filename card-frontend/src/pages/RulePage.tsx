@@ -1,5 +1,5 @@
 import React from "react";
-import "./GamePage.css"; // 기존 게임 스타일 재사용
+import "../css/GamePage.css"; // 기존 게임 스타일 재사용
 
 export default function RulePage() {
     // 족보 데이터 정의

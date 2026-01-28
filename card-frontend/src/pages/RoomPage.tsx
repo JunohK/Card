@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { connection, ensureConnection } from '../signalr/connection';
 import { useAuth } from '../auth/authContext';
-import './RoomPage.css';
+import '../css/RoomPage.css';
 
 interface Player {
     playerId: string;

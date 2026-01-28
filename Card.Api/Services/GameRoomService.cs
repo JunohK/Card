@@ -121,10 +121,10 @@ public class GameRoomService
         room.IsStarted = true;
         room.IsFinished = false;
 
-    // 전체 게임 시작 시에만 누적 점수 0으로 리셋
-    foreach (var p in room.Players) {
-        p.TotalScore = 0; 
-    }
+        // 전체 게임 시작 시에만 누적 점수 0으로 리셋
+        foreach (var p in room.Players) {
+            p.TotalScore = 0; 
+        }
 
         SetupRound(room); // 라운드 세팅 호출
     }
@@ -357,22 +357,30 @@ public class GameRoomService
         var normalCards = hand.Where(c => !IsJoker(c)).ToList();
         var sortedRanks = normalCards.Select(c => GetRankValue(c.Rank)).OrderBy(n => n).ToList();
 
-        // 1️⃣ 스트레이트 체크
+        // 스트레이트 체크
         var (isStraight, straightSum) = GetStraightResult(sortedRanks, jokerCount);
-        if (isStraight) return (true, "Straight", -straightSum);
+        if (isStraight) return (true, "스트레이트", -straightSum);
 
-        // 2️⃣ HighSum 체크 (조커 = 13점)
+        // HighSum 체크 (조커 = 13점)
         int totalHighSum = sortedRanks.Sum() + (jokerCount * 13);
-        if (totalHighSum >= 65) return (true, "HighSum", -totalHighSum);
+        if (totalHighSum >= 65) return (true, "65-", -totalHighSum);
 
-        // 3️⃣ 4장 + 2장 구성 (보상 -100점)
-        if (CanMakeGroups(hand, new[] { 4, 2 })) return (true, "FourAndTwo", -100);
+        // LowSum + (4+2)
+        int LowSumGroup = sortedRanks.Sum() + (jokerCount * 1);
+        if (LowSumGroup <= 10 && CanMakeGroups(hand, new[] { 4, 2 })) return (true, "200-", -200);
+        
+        // LowSum (조커 = 1점)
+        int LowSum = sortedRanks.Sum() + (jokerCount * 1);
+        if (LowSum <= 10) return ( true, "10-", -100);
 
-        // 4️⃣ 3장 + 3장 구성 (보상 0점)
-        if (CanMakeGroups(hand, new[] { 3, 3 })) return (true, "ThreeAndThree", 0);
+        // 4장 + 2장 구성 (보상 -100점)
+        if (CanMakeGroups(hand, new[] { 4, 2 })) return (true, "4 + 2", -100);
 
-        // 5️⃣ 2장 + 2장 + 2장 (보상 0점)
-        if (CanMakeGroups(hand, new[] { 2, 2, 2 })) return (true, "ThreePairs", 0);
+        // 3장 + 3장 구성 (보상 0점)
+        if (CanMakeGroups(hand, new[] { 3, 3 })) return (true, "3 + 3", 0);
+
+        // 2장 + 2장 + 2장 (보상 0점)
+        if (CanMakeGroups(hand, new[] { 2, 2, 2 })) return (true, "2 + 2 + 2", 0);
 
         return (false, "None", 0);
     }

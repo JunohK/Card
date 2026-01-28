@@ -2,6 +2,7 @@ using Card.Api.Services;
 using Card.Api.Domain;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Authorization;
+using Card.Api.GameLogic;
 
 namespace Card.Hubs;
 
@@ -358,7 +359,7 @@ public class GameHub : Hub
         else
         {
             var check = _roomService.CheckWinCondition(player.Hand);
-            await Clients.Caller.SendAsync("ErrorMessage", $"족보가 맞지 않습니다: {check.winType}");
+            await Clients.Caller.SendAsync("ErrorMessage", $"조건에 맞지 않습니다.");
         }
     }
 

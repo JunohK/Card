@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
-import "./LoginPage.css";
+import "../css/LoginPage.css";
 
 export default function LoginPage() {
     const navigate = useNavigate();

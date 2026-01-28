@@ -1,0 +1,96 @@
+/* src/css/MainPage.css */
+
+/* 부모 컨테이너: 화면 전체를 꽉 채우고 자식을 중앙으로 보냄 */
+.main-wrapper {
+    display: flex;
+    justify-content: center; /* 수평 중앙 */
+    align-items: center;     /* 수직 중앙 */
+    width: 100vw;            /* 화면 너비 전체 */
+    height: 100vh;           /* 화면 높이 전체 */
+    background: radial-gradient(circle at center, #2c3e50 0%, #0c0c0c 100%);
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+/* 메인 카드: 중앙에 고정되도록 설정 */
+.main-card {
+    background: rgba(44, 62, 80, 0.5);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    padding: 3.5rem 2.5rem;
+    border-radius: 24px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    width: 100%;             /* 부모 안에서 반응형 너비 */
+    max-width: 380px;        /* 최대 너비 제한 */
+    text-align: center;
+    margin: auto;            /* flex와 함께 작동하여 중앙 배치 보장 */
+}
+
+/* 이하 기존 스타일 동일 */
+.logo-section {
+    margin-bottom: 2.5rem;
+}
+
+.logo-icon {
+    font-size: 3.5rem;
+    display: block;
+    margin-bottom: 1rem;
+    filter: drop-shadow(0 0 10px rgba(241, 196, 15, 0.4));
+}
+
+.main-title {
+    font-size: 2.4rem;
+    font-weight: 900;
+    color: #f1c40f;
+    margin: 0;
+    letter-spacing: 3px;
+    text-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+}
+
+.button-group {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.btn {
+    width: 100%;
+    padding: 15px;
+    font-size: 1.1rem;
+    font-weight: 700;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    outline: none;
+}
+
+.btn-login {
+    background: #f1c40f;
+    color: #2c3e50;
+}
+
+.btn-login:hover {
+    background: #f39c12;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(241, 196, 15, 0.3);
+}
+
+.btn-signup {
+    background: transparent;
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.btn-signup:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: #ffffff;
+}
+
+.footer-text {
+    margin-top: 3rem;
+    font-size: 0.75rem;
+    color: rgba(189, 195, 199, 0.4);
+}

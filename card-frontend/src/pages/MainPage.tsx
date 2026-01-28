@@ -1,26 +1,37 @@
 import { useNavigate } from "react-router-dom";
+import "../css/MainPage.css"; 
 
-export default function MainPage(){
+export default function MainPage() {
     const navigate = useNavigate();
 
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-100">
-            <div className="bg-white p-8 rounded shadow-md w-96 text-center">
-                <h1 className="text-2xl font-bold mb-6"> Card </h1>
+        <div className="main-wrapper"> 
+            <div className="main-card">
+                <div className="logo-section">
+                    <span className="logo-icon">🃏</span>
+                    <h1 className="main-title">CARD GAME</h1>
 
-                <button
-                    className="w-full bg-blue-600 text-white py-2 rounded mb-3 hover:bg-blue-700"
-                    onClick={() => navigate("/login")}
-                >
-                    로그인
-                </button>
+                </div>
 
-                <button
-                    className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700"
-                    onClick={() => navigate("/signup")}
-                >
-                    회원가입
-                </button>
+                <div className="button-group">
+                    <button
+                        className="btn btn-login"
+                        onClick={() => navigate("/login")}
+                    >
+                        로그인
+                    </button>
+
+                    <button
+                        className="btn btn-signup"
+                        onClick={() => navigate("/signup")}
+                    >
+                        회원가입
+                    </button>
+                </div>
+
+                <div className="footer-text">
+                    © 2026 Card Game Project. All rights reserved.
+                </div>
             </div>
         </div>
     );
