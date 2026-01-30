@@ -66,6 +66,7 @@ builder.Services.AddCors(options =>
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials(); // SignalR 인증을 위해 필수
+            // .WithExposedHeaders("WWW-Authenticate"); // 인증 헤더 노출 허용 (옵션)
     });
 });
 
@@ -94,8 +95,9 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseCors("AllowFrontend");
 app.UseRouting();
+app.UseCors("AllowFrontend"); // UseCors는 반드시 UseRouting과 UseAuthentication 사이에 위치해야함
+
 app.UseAuthentication();
 app.UseAuthorization();
 

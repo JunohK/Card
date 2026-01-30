@@ -1,17 +1,38 @@
 import { HubConnectionBuilder, LogLevel, HttpTransportType, HubConnectionState, HubConnection } from "@microsoft/signalr";
 import { authStorage } from "../auth/authStorage";
 
-// 브라우저 환경에 따라 백엔드 주소 자동 감지
+// 브라우저 환경에 따라 백엔드 주소 자동 감지 -- 로컬
+// const getBaseUrl = (): string => {
+//     if (typeof window !== "undefined") {
+//         const hostname = window.location.hostname;
+//         // 로컬 개발 환경(localhost)이면 5101 포트 사용, 아니면 현재 접속 도메인 사용
+//         return hostname === "localhost" || hostname === "127.0.0.1" 
+//             ? "http://localhost:5101/gamehub" 
+//             : `${window.location.origin}/gamehub`;
+//     }
+//     return "http://localhost:5101/gamehub";
+// };
+
+// ngrok 사용
 const getBaseUrl = (): string => {
-    if (typeof window !== "undefined") {
+    // 1. 환경변수가 있다면 우선 사용
+    const envUrl = import.meta.env.VITE_SIGNALR_URL;
+    if(envUrl) return envUrl;
+
+    if(typeof window !== "undefined"){
         const hostname = window.location.hostname;
-        // 로컬 개발 환경(localhost)이면 5101 포트 사용, 아니면 현재 접속 도메인 사용
-        return hostname === "localhost" || hostname === "127.0.0.1" 
-            ? "http://localhost:5101/gamehub" 
-            : `${window.location.origin}/gamehub`;
+    
+        // 2. 로컬 개발 환경 체크
+        if(hostname === "localhost" || hostname === "127.0.0.1") {
+            return "http://localhost:5101/gamehub";
+        }
+
+        // 3. ngrok 등으로 접속한 경우:
+        return `${window.location.origin}/gamehub`;
     }
     return "http://localhost:5101/gamehub";
 };
+
 
 // HubConnection 타입을 명시적으로 지정하여 빨간 줄 방지
 export const connection: HubConnection = new HubConnectionBuilder()
@@ -34,7 +55,7 @@ export const ensureConnection = async (): Promise<boolean> => {
     }
 
     // 2. 연결 중이거나 재연결 중인 경우 잠시 대기
-    if (connection.state === "Connecting" || connection.state === "Reconnecting") {
+    if (connection.state === HubConnectionState.Connecting || connection.state === HubConnectionState.Reconnecting) {
         let attempts = 0;
         // 🔴 'as string'을 붙여서 문자열 비교로 강제 전환
         while ((connection.state as string) !== "Connected" && attempts < 25) {
@@ -44,9 +65,10 @@ export const ensureConnection = async (): Promise<boolean> => {
         return (connection.state as string) === "Connected";
     }
 
-    // 3. 연결이 끊겨 있는 경우 새로 시작
     try {
-        console.log(`[SignalR] 연결 시도 중... 주소: ${getBaseUrl()}`);
+        // 주소 로그 출력으로 디버깅 용이하게 변경
+        const currentUrl = getBaseUrl();
+        console.log(`[SignalR] 연결 시도 중... 주소: ${currentUrl}`);
         await connection.start();
         console.log("✅ [SignalR] 연결 성공");
         return true;

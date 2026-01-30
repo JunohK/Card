@@ -12,11 +12,13 @@ type RoomSummary = {
     isLocked: boolean;
 }
 
-// 플레이어 상세 정보 타입 추가
+// 1. 플레이어 상세 정보 타입 확장 (기존 Wins, TotalGames + 최고/최저 점수)
 type MyProfile = {
     name: string;
     wins: number;
     totalGames: number;
+    maxScore: number;
+    minScore: number;
 }
 
 export default function LobbyPage() {
@@ -28,10 +30,17 @@ export default function LobbyPage() {
     const [messages, setMessages] = useState<string[]>([]);
     const [input, setInput] = useState("");
     
-    // 단순 문자열에서 객체로 변경 (이름, 승수, 판수 저장)
-    const [myProfile, setMyProfile] = useState<MyProfile>({ name: "", wins: 0, totalGames: 0 });
+    // 프로필 정보 상태 관리 (초기값 설정)
+    const [myProfile, setMyProfile] = useState<MyProfile>({ 
+        name: "", 
+        wins: 0, 
+        totalGames: 0, 
+        maxScore: 0, 
+        minScore: 0 
+    });
 
     const [showCreate, setShowCreate] = useState(false);
+    const [showProfile, setShowProfile] = useState(false); // 2. 프로필 모달 상태 추가
     const [title, setTitle] = useState("");
     const [password, setPassword] = useState("");
 
@@ -39,7 +48,7 @@ export default function LobbyPage() {
         let mounted = true;
 
         const setup = async () => {
-            // 서버에서 프로필 정보를 객체 형태로 내려준다고 가정
+            // 서버에서 데이터 수신 시 필드 매핑
             connection.on("ConnectedUser", (data: any) => {
                 if (mounted) {
                     if (typeof data === "string") {
@@ -48,7 +57,9 @@ export default function LobbyPage() {
                         setMyProfile({
                             name: data.name || "",
                             wins: data.wins || 0,
-                            totalGames: data.totalGames || 0
+                            totalGames: data.totalGames || 0,
+                            maxScore: data.maxScore || 0,
+                            minScore: data.minScore || 0
                         });
                     }
                 }
@@ -94,6 +105,7 @@ export default function LobbyPage() {
         };
     }, [navigate]);
 
+    // 승률 계산 로직
     const winRate = myProfile.totalGames > 0 
         ? ((myProfile.wins / myProfile.totalGames) * 100).toFixed(1) 
         : "0";
@@ -151,20 +163,10 @@ export default function LobbyPage() {
                         <div className="lobby-title-text">
                             <h1>LOBBY</h1>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-                                <p style={{ margin: 0 }}>Player: <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{myProfile.name || "Loading..."}</span></p>
-                                
-                                {/* 📊 승률 표시 부분 */}
-                                <div style={{ 
-                                    fontSize: '0.85rem', 
-                                    backgroundColor: '#1e293b', 
-                                    padding: '2px 8px', 
-                                    borderRadius: '6px',
-                                    border: '1px solid #334155',
-                                    color: '#94a3b8'
-                                }}>
-                                    <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>WIN: {winRate}%</span>
-                                    <span style={{ marginLeft: '6px', fontSize: '0.75rem' }}>({myProfile.wins}W / {myProfile.totalGames}G)</span>
-                                </div>
+                                {/* 3. 클릭 가능한 사용자 이름 (언더라인 추가) */}
+                                <p style={{ margin: 0, cursor: 'pointer'}} onClick={() => setShowProfile(true)}>
+                                    Player: <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{myProfile.name || "Loading..."}</span>
+                                </p>
                             </div>
                         </div>
                         <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
@@ -221,7 +223,9 @@ export default function LobbyPage() {
                     
                     <div className="chat-messages">
                         {messages.map((m, i) => {
-                            const [user, msg] = m.split(" : ");
+                            const splitIdx = m.indexOf(" : ");
+                            const user = m.substring(0, splitIdx);
+                            const msg = m.substring(splitIdx + 3);
                             const isMe = user === myProfile.name;
                             return (
                                 <div key={i} className="chat-bubble" style={{ 
@@ -257,7 +261,43 @@ export default function LobbyPage() {
                 </div>
             </div>
 
-            {/* 방 생성 모달 (기존과 동일) */}
+            {/* 4. 내 정보 프로필 모달 */}
+            {showProfile && (
+                <div className="modal-overlay">
+                    <div className="modal-content" style={{ maxWidth: '350px' }}>
+                        <h2 style={{ color: '#38bdf8', marginTop: 0 }}>My Profile</h2>
+                        <div style={{ textAlign: 'left', backgroundColor: '#1e293b', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #334155' }}>
+                            <p style={{ margin: '0.5rem 0' }}><strong>Name:</strong> {myProfile.name}</p>
+                            <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
+                            
+                            <p style={{ margin: '0.5rem 0' }}>
+                                <strong>Win Rate:</strong> <span style={{ color: '#fbbf24' }}>{winRate}%</span>
+                            </p>
+                            <p style={{ margin: '0.5rem 0', fontSize: '0.9rem', color: '#94a3b8' }}>
+                                ({myProfile.wins} Wins / {myProfile.totalGames} Games)
+                            </p>
+                            
+                            <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
+                            
+                            <p style={{ margin: '0.5rem 0', color: '#ef4444' }}>
+                                <strong>🏆 Max Score:</strong> {myProfile.maxScore}
+                            </p>
+                            <p style={{ margin: '0.5rem 0', color: '#22c55e' }}>
+                                <strong>📉 Min Score:</strong> {myProfile.minScore === 999 ? 0 : myProfile.minScore}
+                            </p>
+                        </div>
+                        <button 
+                            className="logout-btn" 
+                            style={{ width: '100%', marginTop: '1.5rem', padding: '0.8rem' }} 
+                            onClick={() => setShowProfile(false)}
+                        >
+                            CLOSE
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* 방 생성 모달 */}
             {showCreate && (
                 <div className="modal-overlay">
                     <div className="modal-content">
