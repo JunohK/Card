@@ -273,6 +273,70 @@ public class GameRoomService
         return true; 
     }
 
+    public void DeclareStop(string roomId, string playerId)
+    {
+        var room = GetRoom(roomId);
+        if (room == null || room.IsFinished || room.IsRoundEnded) return;
+
+        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
+        if (player == null) return;
+
+        // 턴 및 카드 수 검증 (3장 또는 6장일 때만 가능)
+        // 사용자님의 기존 로직 스타일: 현재 턴인 플레이어가 카드를 뽑은 상태인지 확인
+        if (room.CurrentTurnPlayerId == player.PlayerId && (player.Hand.Count == 3))
+        {
+            room.IsStopDeclared = true;
+            room.StopCallerId = player.PlayerId;
+            
+            // 서비스에서는 상태만 변경합니다. 
+            // 알림 메시지는 Hub에서 처리하거나 room 상태를 통해 클라이언트에 전달됩니다.
+        }
+    }
+
+    // STOP 전용 종료 처리
+    private void ApplyStopWin(GameRoom room, Player stopPlayer)
+    {
+        room.IsRoundEnded = true;
+        room.WinnerPlayerId = stopPlayer.PlayerId;
+        room.WinnerHand = new List<PlayingCard>(stopPlayer.Hand);
+
+        // 1. STOP 선언자의 현재 패 점수 계산 (버린 후의 남은 패 점수)
+        int stopPlayerScore = CalculateFinalScore(stopPlayer.Hand, false);
+
+        // 2. 선언자 제외, 현재 패가 2장인 다른 플레이어들의 최소 점수 찾기
+        var otherTwoCardScores = room.Players
+            .Where(p => p.PlayerId != stopPlayer.PlayerId && p.Hand.Count == 2)
+            .Select(p => CalculateFinalScore(p.Hand, false))
+            .ToList();
+
+        // 비교 대상(2장인 사람)이 있고, 내 점수가 그들 중 최솟값보다 크거나 같다면 '독박'
+        bool isDokbak = otherTwoCardScores.Any() && stopPlayerScore >= otherTwoCardScores.Min();
+
+        room.WinnerName = isDokbak ? $"{stopPlayer.Name} (STOP 실패)" : $"{stopPlayer.Name} (STOP 성공)";
+        room.LastWinType = isDokbak ? "STOP 독박 (+50점)" : "STOP 성공 (0점)";
+
+        foreach (var p in room.Players)
+        {
+            if (p.PlayerId == stopPlayer.PlayerId)
+            {
+                // 독박이면 본인 카드 합 + 50점, 성공이면 0점
+                p.Score = isDokbak ? (stopPlayerScore + 50) : 0;
+            }
+            else
+            {
+                // 나머지 인원은 손에 든 만큼 계산
+                p.Score = CalculateFinalScore(p.Hand, false);
+            }
+            p.TotalScore += p.Score;
+        }
+
+        // 상태 초기화
+        room.IsStopDeclared = false;
+        room.StopCallerId = "";
+
+        CheckAndEndFullGame(room);
+    }
+
     private void StartNewRound(GameRoom room)
     {
         // 덱 다시 생성 및 셔플
@@ -363,7 +427,7 @@ public class GameRoomService
 
         // HighSum 체크 (조커 = 13점)
         int totalHighSum = sortedRanks.Sum() + (jokerCount * 13);
-        if (totalHighSum >= 65) return (true, "65-", -totalHighSum);
+        if (totalHighSum >= 68) return (true, "68-", -totalHighSum);
 
         // LowSum + (4+2)
         int LowSumGroup = sortedRanks.Sum() + (jokerCount * 1);
@@ -391,30 +455,30 @@ public class GameRoomService
         if (ranks.Count + jokers < 6) return (false, 0);
         
         var distinctRanks = ranks.Distinct().OrderBy(n => n).ToList();
-        
-        // 가능한 모든 시작점 확인 (A(1)부터 K(13)까지 스트레이트 가능 범위)
+        int maxStraightSum = 0;
+        bool foundAnyStraight = false;
+
+        // 가능한 모든 시작점 확인 (A(1)부터 K(13)까지)
         for (int start = 1; start <= 13 - 6 + 1; start++)
         {
-            int matchCount = 0;
-            int currentSum = 0;
             int usedJokers = 0;
+            int currentSum = 0;
             bool possible = true;
 
+            // 해당 구간(start ~ start+5)이 스트레이트가 가능한지 확인
             for (int i = 0; i < 6; i++)
             {
                 int targetCard = start + i;
                 if (distinctRanks.Contains(targetCard))
                 {
-                    matchCount++;
                     currentSum += targetCard;
                 }
                 else
                 {
-                    // 카드가 없으면 조커를 그 숫자로 사용
                     if (usedJokers < jokers)
                     {
                         usedJokers++;
-                        currentSum += targetCard; // 조커가 변신한 숫자의 값을 더함
+                        currentSum += targetCard; // 조커를 빠진 숫자로 사용
                     }
                     else
                     {
@@ -424,11 +488,32 @@ public class GameRoomService
                 }
             }
 
-            if (possible && (matchCount + usedJokers >= 6))
+            // 스트레이트가 가능하다면, 남은 여분의 조커가 있는지 확인
+            if (possible)
             {
-                return (true, currentSum);
+                foundAnyStraight = true;
+                int remainingJokers = jokers - usedJokers;
+                int tempSum = currentSum;
+
+                // 🟢 조커가 유리하게 작용하도록 하는 핵심 로직:
+                // 이미 구간 내에 내 손패(distinctRanks)가 있어서 조커를 안 쓰고 통과한 자리가 있다면,
+                // 내 손패의 낮은 숫자를 빼고 남은 조커를 그 구간의 가장 높은 숫자로 치환하여 합을 높임.
+                // 하지만 여기서는 "6장 구간"이 고정되어 있으므로, 
+                // 만약 손패에 같은 숫자가 여러장 있거나 구간 외의 숫자가 있어도 스트레이트 합은 해당 구간의 합(start ~ start+5)이 됩니다.
+                // 따라서 여러 구간이 가능할 경우(예: 조커가 많아서 1-6도 되고 7-12도 될 때) 가장 큰 합을 선택합니다.
+                
+                if (tempSum > maxStraightSum)
+                {
+                    maxStraightSum = tempSum;
+                }
             }
         }
+
+        if (foundAnyStraight)
+        {
+            return (true, maxStraightSum);
+        }
+        
         return (false, 0);
     }
 
@@ -480,6 +565,107 @@ public class GameRoomService
         }
     }
 
+    public (bool isBagajiWin, string winnerId, string loserId) CheckBagajiWin(string discardedRank, string discarderId, List<Player> allPlayers)
+    {
+        // 조커는 바가지 대상 카드가 될 수 없음
+        if (discardedRank == "Joker" || discardedRank == "JK" || discardedRank == "JOKER") 
+            return (false, null, null);
+
+        foreach (var player in allPlayers)
+        {
+            // 본인이 버린 카드로 본인이 승리할 수는 없음
+            if (player.PlayerId == discarderId) continue;
+
+            var hand = player.Hand;
+            // 바가지는 무조건 카드가 2장일 때만 성립
+            // if (hand.Count != 2) continue;
+
+            // 일반 바가지
+            if(hand.Count == 2){
+                bool hasTargetRank = hand.Any(c => c.Rank == discardedRank);
+                bool isBagajiStatus = false;
+
+                // 조건 1: 동일 숫자 2장 (그 중 하나가 방금 버려진 카드와 일치)
+                if (hand.Count(c => c.Rank == hand[0].Rank) == 2 && hasTargetRank)
+                {
+                    isBagajiStatus = true;
+                }
+                // 조건 2: 숫자 1장 + 조커 (그 숫자가 방금 버려진 카드와 일치)
+                else if (hand.Any(c => c.Rank == "Joker" || c.Rank == "JK" || c.Rank == "JOKER") && hasTargetRank)
+                {
+                    isBagajiStatus = true;
+                }
+
+                if (isBagajiStatus)
+                {
+                    // 🟢 바가지 승리 발생! 
+                    // winnerId: 바가지를 들고 있던 사람
+                    // loserId: 카드를 버려서 바가지를 씌우게 된 사람
+                    return (true, player.PlayerId, discarderId);
+                }
+            }
+
+            // 자연바가지
+            else if(hand.Count == 5)
+            {
+                // 조커 제외 일반 카드
+                var normalCards = hand.Where(c => c.Rank != "Joker" && c.Rank != "JK" && c.Rank != "JOKER").ToList();
+
+                // 조커 개수 파악
+                int jokerCount = hand.Count - normalCards.Count;
+
+                // 숫자별 그룹화(조커제외)
+                var groups = normalCards.GroupBy(c => c.Rank).ToDictionary(g => g.Key, g => g.Count());
+
+                // 상대가 버린 카드가 내 패에 존재하는지 확인
+                if(groups.ContainsKey(discardedRank))
+                {
+                    bool isWin = false;
+
+                    // 1. 조커가 없을 때 3장(A) + 2장(B) 구성이고 상대가 B를 냈을 때
+                    if(jokerCount == 0 && groups.Count == 2)
+                    {
+                        if(groups[discardedRank] == 2) isWin = true;
+                    }
+
+                    // 2. 조커가 1장일 때 2장(A) + 2장(B)인 경우 상대가 A나 B 둘 중 하나를 냈을 때
+                    else if(jokerCount == 1 && groups.Count == 2)
+                    {
+                        if(groups[discardedRank] == 2) isWin = true;
+                    }
+
+                    if(isWin) return (true, player.PlayerId, discarderId);
+                }
+            }
+        }
+
+        return (false, null, null);
+    }
+
+    public void ProcessBagajiGameOver(Player winner, Player loser, List<Player> allPlayers)
+    {
+        foreach (var player in allPlayers)
+        {
+            if (player.PlayerId == winner.PlayerId)
+            {
+                // 🟢 승자 (바가지를 들고 기다리던 사람)
+                player.Score = 0; 
+            }
+            else if (player.PlayerId == loser.PlayerId)
+            {
+                // 🔴 패자 (카드를 버린 사람)
+                // 본인 손패 점수 + 30점 벌점
+                int handScore = CalculateLoserScore(player.Hand);
+                player.Score = handScore + 30; 
+            }
+            else
+            {
+                // 그 외 나머지 인원: 본인 패 점수대로 벌점
+                player.Score = CalculateLoserScore(player.Hand);
+            }
+        }
+    }
+
     // 바가지 전용 종료 처리
     private void ApplyBagajiWin(GameRoom room, Player winner, string loserId)
     {
@@ -487,23 +673,33 @@ public class GameRoomService
         room.WinnerPlayerId = winner.PlayerId;
         room.WinnerName = $"{winner.Name} (바가지)";
 
+        room.WinnerHand = new List<PlayingCard>(winner.Hand);
+
         foreach (var p in room.Players)
         {
+            // 1. 승자 판별
             if (p.PlayerId == winner.PlayerId)
             {
-                p.Score = 0; // 바가지 씌운 사람은 0점
+                p.Score = 0;
             }
-            else if (p.PlayerId == loserId)
+            // 2. 패자 판별 (자연바가지를 당한 사람: loserId)
+            // ID 비교 시 공백이나 대소문자 이슈 방지를 위해 Trim() 사용
+            else if (!string.IsNullOrEmpty(loserId) && p.PlayerId.Trim().Equals(loserId.Trim()))
             {
-                // 카드를 내서 바가지 당한 사람: 패 점수 + 30점
-                p.Score = CalculateFinalScore(p.Hand, false) + 30;
+                // CalculateLoserScore를 사용하여 3장 세트 제외 후 점수 계산 + 독박 벌점 30점
+                int handScore = CalculateLoserScore(p.Hand);
+                p.Score = handScore + 30;
             }
+            // 3. 나머지 인원
             else
             {
-                p.Score = CalculateFinalScore(p.Hand, false);
+                p.Score = CalculateLoserScore(p.Hand);
             }
+
+            // 🔴 중요: 실질적인 누적 점수에 합산하여 전광판에 반영
             p.TotalScore += p.Score;
         }
+
         CheckAndEndFullGame(room);
     }
 
@@ -623,25 +819,25 @@ public class GameRoomService
     }
 
     // 승리자 감점 액수 정의
-    private int CalculateWinnerScore(string winType)
-    {
-        return winType switch
-        {
-            "SixOfAKind" => -200,    // 6장 동일
-            "FourAndTwo" => -100,    // 4장, 2장
-            "ThreeAndThree" => 0, // 3장, 3장
-            "ThreePairs" => 0,     // 2+2+2
-            "FiveOfAKind" => -60,    // 5장 동일
-            _ => -30
-        };
-    }
+    // private int CalculateWinnerScore(string winType)
+    // {
+    //     return winType switch
+    //     {
+    //         "SixOfAKind" => -200,    // 6장 동일
+    //         "FourAndTwo" => -100,    // 4장, 2장
+    //         "ThreeAndThree" => 0, // 3장, 3장
+    //         "ThreePairs" => 0,     // 2+2+2
+    //         "FiveOfAKind" => -60,    // 5장 동일
+    //         _ => -30
+    //     };
+    // }
 
     // 패배자 점수 계산 (3장 이상 같은 숫자 제외)
     public int CalculateLoserScore(List<PlayingCard> hand)
     {
         // 1. 조커 개수 확인 및 일반 카드 그룹화
-        int jokerCount = hand.Count(c => c.Rank == "Joker");
-        var normalCards = hand.Where(c => c.Rank != "Joker").ToList();
+        int jokerCount = hand.Count(c => c.Rank == "Joker" || c.Rank == "JK" || c.Rank == "JOKER");
+        var normalCards = hand.Where(c => !(c.Rank == "Joker" || c.Rank == "JK" || c.Rank == "JOKER")).ToList();
         
         // 숫별로 장수 카운트
         var groups = normalCards.GroupBy(c => c.Rank)
@@ -670,12 +866,12 @@ public class GameRoomService
                 continue; 
             }
 
-            // 1장인데 조커가 2장 있다면? (이 게임은 조커가 1장이므로 실제로는 불가능하지만 로직상 추가)
-            if (count == 1 && remainingJokers >= 2)
-            {
-                remainingJokers -= 2;
-                continue;
-            }
+            // 1장인데 조커가 2장 있다면? (조커가 여러장이 될 경우)
+            // if (count == 1 && remainingJokers >= 2)
+            // {
+            //     remainingJokers -= 2;
+            //     continue;
+            // }
 
             // 세트를 만들지 못한 나머지 카드들만 점수 합산
             totalScore += (group.Value * count);
@@ -685,7 +881,7 @@ public class GameRoomService
         // 룰에 따라 0점 혹은 특정 점수 가산 (현재는 0점 처리)
         if (remainingJokers > 0)
         {
-            // totalScore += (remainingJokers * 15); // 예: 조커 장당 15점 벌칙 시
+            totalScore += (remainingJokers * 1); // 패에 2장 남은 경우 조커 1점으로 계산
         }
 
         return totalScore;
@@ -731,6 +927,7 @@ public class GameRoomService
             room.IsStarted = false;
         }
     }
+
     public void EndTurn(GameRoom room)
     {
         if (room.IsFinished) return;
@@ -792,10 +989,6 @@ public class GameRoomService
         return deck;
     }
 
-    // GameRoomService.cs
-
-// GameRoomService.cs 클래스 내부
-
     public GameRoom DrawCard(string roomId, string playerId)
     {
         var room = GetRoom(roomId);
@@ -822,31 +1015,46 @@ public class GameRoomService
     public GameRoom PlayCard(string roomId, string playerId, PlayingCard card)
     {
         var room = GetRoom(roomId);
-        // 1. 검증: 방이 없거나, 시작되지 않았거나, 이미 끝났거나, 내 턴이 아니면 무시
         if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId) 
             return room;
 
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null) return room;
 
-        // 2. 낼 카드가 실제 패에 있는지 확인
         var cardToPlay = player.Hand.FirstOrDefault(c => 
             (c.Suit == card.Suit && c.Rank == card.Rank) || 
             (c.Rank == "Joker" && card.Rank == "Joker"));
         
         if (cardToPlay != null)
         {
-            // 3. 패에서 제거 및 바닥(DiscardPile)에 추가
             player.Hand.Remove(cardToPlay);
             room.LastDiscardedCard = cardToPlay;
             room.DiscardPile.Add(cardToPlay);
-            
-            // 4. 누가 마지막으로 액션을 했는지 기록 (뻥/바가지 판정용)
-            room.LastActorPlayerId = playerId;
 
-            // 🔥 [중요 수정] 여기서 턴을 넘기는 로직을 삭제했습니다.
-            // 이제 턴은 GameHub에서 Task.Delay(1500) 이후에 넘기거나,
-            // 누군가 '뻥'을 했을 때 강제로 변경하게 됩니다.
+            // 🚨 [수정] 바가지 체크 로직을 단일화하여 정확한 loserId를 전달합니다.
+            var result = CheckBagajiWin(cardToPlay.Rank, playerId, room.Players);
+            if (result.isBagajiWin)
+            {
+                var winner = room.Players.FirstOrDefault(p => p.PlayerId == result.winnerId);
+                if (winner != null)
+                {
+                    // 프론트 모달 표시용 텍스트 설정
+                    room.LastWinType = $"🔥 바가지 승리! ({winner.Name})";
+                    // 점수 계산 실행 (result.loserId는 카드를 버린 playerId와 동일함)
+                    ApplyBagajiWin(room, winner, result.loserId);
+                    return room;
+                }
+            }
+            
+            // 🛑 STOP 선언 처리
+            if (room.IsStopDeclared && room.StopCallerId == playerId)
+            {
+                ApplyStopWin(room, player);
+                return room;
+            }
+
+            room.LastActorPlayerId = playerId;
+            // 턴 넘기기 로직은 허브의 Delay 이후 혹은 규칙에 따라 별도 처리
         }
         
         return room;
@@ -956,6 +1164,22 @@ public class GameRoomService
         {
             room.IsFinished = true;
             room.IsStarted = false;
+        }
+    }
+
+    // 승률 계산 매서드
+    private void UpdatePlayerStats(GameRoom room)
+    {
+        // 최종 승자 ID 추출(점수가 가장 낮은 사람)
+        var finalWinner = room.Players.OrderBy(p => p.TotalScore).First();
+
+        foreach(var player in room.Players)
+        {
+            player.TotalGames += 1; // 모든 참가자 판 수 증가
+            if(player.PlayerId == finalWinner.PlayerId)
+            {
+                player.Wins += 1; // 승자 승리 횟수 증가
+            }
         }
     }
 }

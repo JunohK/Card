@@ -87,7 +87,15 @@ export default function GamePage() {
 
             setGame({ ...data });
             
-            if (data.isRoundEnded || data.IsRoundEnded) {
+            // ✅ 수정: 라운드 종료와 게임 전체 종료를 명확히 구분
+            const roundEnded = data.isRoundEnded || data.IsRoundEnded;
+            const gameFinished = data.isFinished || data.IsFinished;
+
+            if (gameFinished) {
+                // 게임이 아예 끝났다면 라운드 결과창을 건너뛰고 바로 최종 결과창으로 유도하거나,
+                // 상태를 강제 설정하여 다음 라운드 버튼이 안 보이게 해야 함
+                setShowRoundResult(false); 
+            } else if (roundEnded) {
                 setShowRoundResult(true);
             }
         };
@@ -105,12 +113,18 @@ export default function GamePage() {
 
         if (!isSubscribed.current) {
             connection.on("RoomUpdated", onUpdate);
+            connection.on("ReshuffleDeck", onUpdate);
             connection.on("GameStarted", onUpdate);
             connection.on("ShowResultBoard", onUpdate);
             connection.on("HideResultBoard", onHideResultBoard);
             connection.on("GameTerminated", onGameTerminated);
             connection.on("ExitToRoom", onExitToRoom);
-            
+
+            // ✅ 셔플 완료 메시지 알림
+            connection.on("ReshuffleDeck", (msg) => {
+                console.log(msg);
+            });
+
             // ✅ 기존 alert(msg) 대신 커스텀 팝업 상태 업데이트로 변경
             connection.on("ErrorMessage", (msg) => {
                 setErrorMsg(msg);
@@ -216,35 +230,87 @@ export default function GamePage() {
             return false; 
         }
 
-        // 4. 내 턴이 아닐 때만 가능
-        if (isMyTurn) return false; 
+        // 4. 내 턴 조건 완화 (턴이 넘어온 직후에도 뻥 버튼이 유지되도록)
+        // 상대가 버린 직후 턴이 나에게 왔더라도, 뻥을 칠 수 있는 기회를 주기 위해 
+        // 내 손패가 아직 5장(뽑기 전)이라면 뻥 체크를 허용합니다.
+        if (isMyTurn && currentHandCount !== 5) return false; 
 
-        // 5. 비교 대상(상대가 버린 카드)의 숫자 추출 (대소문자 처리 강화)
+        // 5. 비교 대상(상대가 버린 카드)의 숫자 추출
         const discardedRank = (lastDiscarded.rank || lastDiscarded.Rank)?.toString().toUpperCase();
-        if (!discardedRank) return false;
+        // 조커는 뻥의 대상(버려진 카드)이 될 수 없음
+        if (!discardedRank || discardedRank === "JK" || discardedRank === "JOKER") return false;
 
-        // 6. 내 손패 필터링 (일반 숫자 매칭 + 조커 포함)
+        // 6. 내 손패 확인 (동일 숫자 카드와 조커 분리 추출)
         const sameRankCards = myHand.filter((c: any) => {
             const myCardRank = (c.rank || c.Rank)?.toString().toUpperCase();
-            
-            // 조건 1: 상대가 버린 카드 숫자와 내 카드의 숫자가 정확히 일치
-            const isMatch = myCardRank === discardedRank;
-            
-            // 조건 2: 내 카드가 조커(JK 또는 JOKER)인 경우 (숫자 상관없이 뻥 재료가 됨)
-            const isJoker = myCardRank === "JK" || myCardRank === "JOKER";
-            
-            return isMatch || isJoker;
+            return myCardRank === discardedRank;
         });
 
-        // 7. 위 조건에 부합하는 카드가 내 손에 2장 이상 있으면 '뻥' 가능
-        return sameRankCards.length >= 2; 
+        const jokerCards = myHand.filter((c: any) => {
+            const myCardRank = (c.rank || c.Rank)?.toString().toUpperCase();
+            return myCardRank === "JK" || myCardRank === "JOKER";
+        });
+
+        // 7. 뻥 조건 판단
+        // 조건 1: 동일 숫자 카드가 2장 이상 있음
+        // 조건 2: 동일 숫자 카드가 1장 있고, 조커가 1장 이상 있음
+        const hasTwoSameCards = sameRankCards.length >= 2;
+        const hasOneCardAndOneJoker = sameRankCards.length >= 1 && jokerCards.length >= 1;
+
+        return hasTwoSameCards || hasOneCardAndOneJoker;
     };
 
     const canPung = checkCanPung();
 
+    /** 🛑 STOP 버튼 활성화 조건 (본인 포함 2장인 사람 2명 이상) */
+    const checkCanStop = () => {
+        const currentHandCount = myHand.length;
+        
+        // 1. 내 턴이고, 내가 카드를 한 장 뽑아서 3장인 상태여야 함 (뽑기 전 2장)
+        const isActionPhase = isMyTurn && currentHandCount === 3;
+        if (!isActionPhase) return false;
+
+        // 2. 패가 2장인 사람 카운트 (본인 포함)
+        const playersWithTwoCards = players.filter((p: any) => {
+            const pid = p.playerId || p.PlayerId;
+            const handCount = p.hand?.length || p.Hand?.length || 0;
+
+            if (pid === myId) {
+                // 나는 현재 3장이지만 뽑기 전에는 2장이었으므로 조건 충족
+                return true; 
+            }
+            
+            // 다른 플레이어들은 현재 손에 든 카드가 정확히 2장이어야 함
+            return handCount === 2;
+        });
+
+        // 본인(2장 상태에서 뽑은 자)을 포함하여 2장인 사람이 최소 2명 이상일 때
+        return playersWithTwoCards.length >= 2;
+    };
+
+    /** 🛑 STOP 버튼 클릭 핸들러 */
+    const handleStop = () => {
+        if (!canStop) return;
+        
+        if (window.confirm("STOP을 선언하시겠습니까? 이번에 카드를 버리면 게임이 종료됩니다.")) {
+            connection.invoke("DeclareStop", roomId)
+                .catch(err => console.error("STOP 호출 실패:", err));
+        }
+    };
+
+    const canStop = checkCanStop();
+
     return (
         <div className="game-container" style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
             <style>{`
+                @keyframes fadeInModal {
+                    0% { opacity: 0; }
+                    100% { opacity: 1; }
+                }
+
+                .fade-in-2s {
+                    animation: fadeInModal 2s ease-in-out forwards;
+                }
                 @keyframes blueGlow {
                     0% { box-shadow: 0 0 5px #3498db; border: 3px solid #3498db; }
                     50% { box-shadow: 0 0 25px #3498db; border: 3px solid #5dade2; }
@@ -296,15 +362,36 @@ export default function GamePage() {
             <div className="game-table-area">
                 <div className="table-oval" style={{ position: 'relative' }}>
                     <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', zIndex: 10 }}>
+                        {/* 덱과 버린 카드 레이아웃 */}
                         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-                            <div className={`card-ui deck ${canDraw ? 'can-action' : ''}`} onClick={() => {
-                                if(canDraw) connection.invoke("DrawCard", roomId);
-                            }}>
+                            <div className={`card-ui deck ${canDraw ? 'can-action' : ''}`} 
+                                style={{
+                                    width: '100px',
+                                    height: '140px',
+                                    cursor: canDraw ? 'pointer' : 'default'
+                                }}
+                                onClick={() => {
+                                    if(canDraw) connection.invoke("DrawCard", roomId);
+                                }}>
                                 <span className="label">DECK</span>
                                 <div className="count">{deckCount}</div>
                                 {isHost && deckCount === 0 && <button className="reshuffle-badge" onClick={(e) => { e.stopPropagation(); handleReshuffle(); }}>🔄 셔플</button>}
                             </div>
-                            <div className={`card-ui discard ${(lastDiscarded?.color || lastDiscarded?.Color) === 'Red' ? 'red' : 'black'}`} onClick={() => setShowDiscardModal(true)} style={{ cursor: 'pointer' }}>
+                            
+                            <div className={`card-ui discard ${(lastDiscarded?.color || lastDiscarded?.Color) === 'Red' ? 'red' : 'black'}`}
+                                onClick={() => setShowDiscardModal(true)} 
+                                style={{ 
+                                    width: '100px',   // 동일하게 확장
+                                    height: '140px',  // 동일하게 확장
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    justifyContent: 'center',
+                                    alignItems: 'center',
+                                    border: '2px solid #333',
+                                    borderRadius: '10px'
+                                }}
+                            >
                                 {lastDiscarded ? (
                                     <>
                                         <span className="rank">{getRankText(lastDiscarded.rank || lastDiscarded.Rank)}</span>
@@ -313,22 +400,93 @@ export default function GamePage() {
                                 ) : <span className="empty-label">DROP</span>}
                             </div>
                         </div>
-                        <button 
-                            className={`interrupt-btn ${canPung ? 'pung-active' : ''}`} 
-                            onClick={() => { if(canPung) connection.invoke("InterruptDiscard", roomId); }} 
-                            disabled={!canPung}
-                            style={{ padding: '12px 25px', borderRadius: '10px', fontWeight: 'bold', fontSize: '1.1rem', transition: '0.3s' }}
-                        >
-                            {canPung ? "🔥 뻥!!" : "뻥"}
-                        </button>
+
+                        {/* 🎮 액션 버튼 영역 (뻥과 STOP을 가로로 배치) */}
+                        <div style={{ display: 'flex', flexDirection: 'row', gap: '15px', alignItems: 'center' }}>
+                            {/* 🔥 뻥 버튼 */}
+                            <button 
+                                className={`interrupt-btn ${canPung ? 'pung-active' : ''}`} 
+                                onClick={() => { if(canPung) connection.invoke("InterruptDiscard", roomId); }} 
+                                disabled={!canPung}
+                                style={{ 
+                                    padding: '12px 25px', 
+                                    borderRadius: '10px', 
+                                    fontWeight: 'bold', 
+                                    fontSize: '1.1rem', 
+                                    transition: '0.3s',
+                                    minWidth: '100px'
+                                }}
+                            >
+                                {canPung ? "🔥 뻥!!" : "뻥"}
+                            </button>
+
+                            {/* 🛑 STOP 버튼 추가 (뻥 버튼 오른쪽에 배치됨) */}
+                            <button 
+                                className={`interrupt-btn ${canStop ? 'stop-active' : ''}`} 
+                                onClick={handleStop}
+                                disabled={!canStop}
+                                style={{ 
+                                    padding: '12px 25px', 
+                                    borderRadius: '10px', 
+                                    fontWeight: 'bold', 
+                                    fontSize: '1.1rem',
+                                    opacity: canStop ? 1 : 0.5, 
+                                    cursor: canStop ? 'pointer' : 'default',
+                                    backgroundColor: canStop ? '#f1c40f' : '#7f8c8d', 
+                                    color: canStop ? '#2c3e50' : 'white', 
+                                    border: 'none',
+                                    minWidth: '100px',
+                                    transition: '0.3s'
+                                }}
+                            >
+                                {canStop ? "🛑 STOP" : "STOP"}
+                            </button>
+                        </div>
                     </div>
 
-                    {others.map((player: any, idx: number) => (
-                        <div key={player.playerId || player.PlayerId} className={`player-box ${currentTurnId === (player.playerId || player.PlayerId) ? 'active-turn' : ''}`} style={{ position: 'absolute', top: ENEMY_POSITIONS[idx]?.top, left: ENEMY_POSITIONS[idx]?.left, transform: 'translate(-50%, -50%)' }}>
-                            <div className="player-name">{player.name || player.Name}</div>
-                            <div className="opponent-card-back">{(player.hand || player.Hand)?.length || 0}</div>
-                        </div>
-                    ))}
+                    {others.map((player: any, idx: number) => {
+                        // 🟢 바가지 체크 로직 (카드 2장 중 조커 포함 혹은 동일 숫자)
+                        const opponentHand = player.hand || player.Hand || [];
+                        let isBagaji = false;
+
+                        if (opponentHand.length === 2) {
+                            const card1 = opponentHand[0]?.rank || opponentHand[0]?.Rank;
+                            const card2 = opponentHand[1]?.rank || opponentHand[1]?.Rank;
+
+                            const isCard1Joker = card1 === "JK" || card1 === "JOKER" || card1 === "Joker";
+                            const isCard2Joker = card2 === "JK" || card2 === "JOKER" || card2 === "Joker";
+
+                            if (isCard1Joker || isCard2Joker) {
+                                // 조건 1: 한 장이라도 조커면 바가지
+                                isBagaji = true;
+                            } else if (getRankText(card1) === getRankText(card2)) {
+                                // 조건 2: 조커는 없지만 두 카드의 숫자가 같으면 바가지
+                                isBagaji = true;
+                            }
+                        }
+
+                        return (
+                            <div key={player.playerId || player.PlayerId} className={`player-box ${currentTurnId === (player.playerId || player.PlayerId) ? 'active-turn' : ''}`} style={{ position: 'absolute', top: ENEMY_POSITIONS[idx]?.top, left: ENEMY_POSITIONS[idx]?.left, transform: 'translate(-50%, -50%)' }}>
+                                <div className="player-name">{player.name || player.Name}</div>
+                                <div className="opponent-card-back">{(player.hand || player.Hand)?.length || 0}</div>
+                                
+                                {/* 🔴 바가지 표시 추가 */}
+                                {isBagaji && (
+                                    <div className="bagaji-label" style={{ 
+                                        marginTop: '5px', 
+                                        color: '#e74c3c', 
+                                        fontWeight: 'bold', 
+                                        fontSize: '0.9rem',
+                                        textShadow: '0 0 5px rgba(255,255,255,0.5)',
+                                        textAlign: 'center',
+                                        animation: 'pulse 1s infinite'
+                                    }}>
+                                        🔥 바가지
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -365,9 +523,9 @@ export default function GamePage() {
                                     boxShadow: '0 4px 8px rgba(0,0,0,0.3)', transition: 'transform 0.1s' 
                                 }}
                                 onClick={() => canDiscardOrWin && connection.invoke("PlayCard", roomId, card)}>
-                                <span className="rank" style={{ fontWeight: 'bold', fontSize: '1rem' }}>{rankText}</span>
+                                <span className="rank" style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{rankText}</span>
                                 <span className="suit" style={{ fontSize: '2.2rem', textAlign: 'center' }}>{suitText}</span>
-                                <span className="rank" style={{ fontWeight: 'bold', textAlign: 'right', transform: 'rotate(180deg)', fontSize: '1rem' }}>{rankText}</span>
+                                <span className="rank" style={{ fontWeight: 'bold', textAlign: 'right', transform: 'rotate(180deg)', fontSize: '1.1rem' }}>{rankText}</span>
                             </div>
                         );
                     })}
@@ -375,10 +533,29 @@ export default function GamePage() {
             </div>
 
             {showRoundResult && !game.isFinished && (
-                <div className="discard-modal-overlay">
+                <div className="discard-modal-overlay fade-in-2s">
                     <div className="discard-modal-content" style={{ textAlign: 'center' }}>
                         <h2 style={{ color: '#f1c40f', marginBottom: '20px' }}>ROUND RESULT</h2>
                         
+                        {/* 🏆 우승자 패 표시 영역 추가 */}
+                        <div style={{ marginBottom: '25px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
+                            <p style={{ color: '#aaa', fontSize: '0.9rem', marginBottom: '10px' }}>우승자 카드 구성</p>
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                {/* ✅ p: any 를 추가하여 타입 에러 해결 */}
+                                {(game.winnerHand || players.find((p: any) => (p.name || p.Name) === (game.winnerName || game.WinnerName))?.hand || []).map((card: any, i: number) => (
+                                    <div key={i} style={{ 
+                                        width: '50px', height: '70px', background: 'white', borderRadius: '5px', 
+                                        display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                                        color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
+                                        border: '1px solid #ddd', fontSize: '0.8rem'
+                                    }}>
+                                        <span style={{ fontWeight: 'bold' }}>{getRankText(card.rank || card.Rank)}</span>
+                                        <span style={{ fontSize: '1.2rem' }}>{(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
                         <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(241, 196, 15, 0.1)', borderRadius: '8px', border: '1px solid #f1c40f' }}>
                             <span style={{ color: '#f1c40f', fontWeight: 'bold' }}>판정 결과: </span>
                             <span style={{ color: '#ffffff', fontSize: '1.2rem', fontWeight: 'bold', marginLeft: '8px' }}>
@@ -430,7 +607,7 @@ export default function GamePage() {
 
             {/* 2. 최종 결과창: game.isFinished가 true일 때만 표시 (1라운드 게임인 경우 바로 이 창이 뜸) */}
             {game.isFinished && (
-                <div className="discard-modal-overlay" style={{ backgroundColor: 'rgba(0, 0, 0, 0.9)', zIndex: 2000 }}>
+                <div className="discard-modal-overlay fade-in-2s" style={{ backgroundColor: 'rgba(0, 0, 0, 0.9)', zIndex: 2000 }}>
                     <div className="discard-modal-content" style={{ textAlign: 'center', border: '2px solid #f1c40f', padding: '40px' }}>
                         <h1 style={{ color: '#f1c40f', fontSize: '2.5rem', marginBottom: '10px' }}>
                             {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "GIVE UP" : "GAME OVER"}
@@ -443,6 +620,22 @@ export default function GamePage() {
                             <span style={{ color: '#ffffff', fontSize: '2rem', fontWeight: 'bold' }}>
                                 👑 {game.winnerName || game.WinnerName || "-"}
                             </span>
+
+                            {/* 🏆 최종 우승자의 카드 노출 */}
+                            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
+                                {(game.winnerHand || []).map((card: any, i: number) => (
+                                    <div key={i} style={{ 
+                                        width: '60px', height: '85px', background: 'white', borderRadius: '6px', 
+                                        display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                                        color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
+                                        boxShadow: '0 0 15px rgba(241, 196, 15, 0.5)'
+                                    }}>
+                                        <span style={{ fontWeight: 'bold', fontSize: '1rem' }}>{getRankText(card.rank || card.Rank)}</span>
+                                        <span style={{ fontSize: '1.8rem' }}>{(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}</span>
+                                    </div>
+                                ))}
+                            </div>
+
                             <div style={{ color: '#f1c40f', marginTop: '10px' }}>
                                 판정 족보: {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "상대방 기권" : (game.lastWinType || game.LastWinType || "게임 종료")}
                             </div>

@@ -1,5 +1,6 @@
 // GameRoom.cs
 using Card.Api.GameLogic;
+using Microsoft.AspNetCore.SignalR;
 
 namespace Card.Api.Domain;
 
@@ -35,6 +36,7 @@ public class GameRoom
     public string? WinnerPlayerId { get; set; }
     public WinReason? WinReason { get; set; }
     public string? WinnerName { get; set; }
+    public List<PlayingCard> WinnerHand { get; set; } = new List<PlayingCard>();
     public string? LastWinType { get; set; } 
     public int MaxRounds { get; set; }
     public int CurrentRound { get; set; }
@@ -43,4 +45,6 @@ public class GameRoom
     // public bool IsGameOver { get; set; }
     public int DeckCount => Deck.Count;
     public string LastActorPlayerId { get; set; } = string.Empty;
+    public bool IsStopDeclared { get; set; } = false;
+    public string StopCallerId { get; set; } = "";
 }

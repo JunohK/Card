@@ -29,14 +29,14 @@ export default function RulePage() {
             example: ["4", "5", "6", "7", "8", "9"]
         },
         {
-            title: "65-",
-            description: "6장 카드의 값이 65 이상인 경우",
+            title: "68-",
+            description: "6장 카드의 값이 68 이상인 경우",
             score: "카드의 합계만큼 - n점",
             example: ["11", "11", "11", "12", "12", "13"]
         },
         {
             title: "뻥",
-            description: "상대방이 카드를 버릴 때 내 패에 해당카드 2장과 추가 카드 1장을 버리는 경우",
+            description: "상대방이 카드를 버릴 때 뻥 버튼을 눌러 내 패에 해당카드 2장과 추가 카드 1장을 버림",
             score: "-",
             example: ["J", "J", "3", "4", "8"]
         },

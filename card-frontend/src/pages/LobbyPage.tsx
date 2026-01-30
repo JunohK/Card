@@ -12,6 +12,13 @@ type RoomSummary = {
     isLocked: boolean;
 }
 
+// 플레이어 상세 정보 타입 추가
+type MyProfile = {
+    name: string;
+    wins: number;
+    totalGames: number;
+}
+
 export default function LobbyPage() {
     const navigate = useNavigate();
     const { logout } = useAuth();
@@ -20,7 +27,9 @@ export default function LobbyPage() {
     const [rooms, setRooms] = useState<RoomSummary[]>([]);
     const [messages, setMessages] = useState<string[]>([]);
     const [input, setInput] = useState("");
-    const [myName, setMyName] = useState("");
+    
+    // 단순 문자열에서 객체로 변경 (이름, 승수, 판수 저장)
+    const [myProfile, setMyProfile] = useState<MyProfile>({ name: "", wins: 0, totalGames: 0 });
 
     const [showCreate, setShowCreate] = useState(false);
     const [title, setTitle] = useState("");
@@ -30,7 +39,21 @@ export default function LobbyPage() {
         let mounted = true;
 
         const setup = async () => {
-            connection.on("ConnectedUser", (name: string) => mounted && setMyName(name));
+            // 서버에서 프로필 정보를 객체 형태로 내려준다고 가정
+            connection.on("ConnectedUser", (data: any) => {
+                if (mounted) {
+                    if (typeof data === "string") {
+                        setMyProfile(prev => ({ ...prev, name: data }));
+                    } else {
+                        setMyProfile({
+                            name: data.name || "",
+                            wins: data.wins || 0,
+                            totalGames: data.totalGames || 0
+                        });
+                    }
+                }
+            });
+
             connection.on("ReceiveMessage", (user, message) => {
                 if (mounted) setMessages(prev => [...prev, `${user} : ${message}`]);
             });
@@ -70,6 +93,10 @@ export default function LobbyPage() {
             connection.off("JoinRoomSuccess");
         };
     }, [navigate]);
+
+    const winRate = myProfile.totalGames > 0 
+        ? ((myProfile.wins / myProfile.totalGames) * 100).toFixed(1) 
+        : "0";
 
     const createRoom = async () => {
         if (!title.trim() || connection.state !== "Connected") return;
@@ -123,7 +150,22 @@ export default function LobbyPage() {
                     <header className="lobby-header">
                         <div className="lobby-title-text">
                             <h1>LOBBY</h1>
-                            <p>Player: <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{myName || "Loading..."}</span></p>
+                            <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
+                                <p style={{ margin: 0 }}>Player: <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{myProfile.name || "Loading..."}</span></p>
+                                
+                                {/* 📊 승률 표시 부분 */}
+                                <div style={{ 
+                                    fontSize: '0.85rem', 
+                                    backgroundColor: '#1e293b', 
+                                    padding: '2px 8px', 
+                                    borderRadius: '6px',
+                                    border: '1px solid #334155',
+                                    color: '#94a3b8'
+                                }}>
+                                    <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>WIN: {winRate}%</span>
+                                    <span style={{ marginLeft: '6px', fontSize: '0.75rem' }}>({myProfile.wins}W / {myProfile.totalGames}G)</span>
+                                </div>
+                            </div>
                         </div>
                         <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
                             LOGOUT
@@ -180,7 +222,7 @@ export default function LobbyPage() {
                     <div className="chat-messages">
                         {messages.map((m, i) => {
                             const [user, msg] = m.split(" : ");
-                            const isMe = user === myName;
+                            const isMe = user === myProfile.name;
                             return (
                                 <div key={i} className="chat-bubble" style={{ 
                                     alignSelf: isMe ? 'flex-end' : 'flex-start',
@@ -215,7 +257,7 @@ export default function LobbyPage() {
                 </div>
             </div>
 
-            {/* 방 생성 모달 */}
+            {/* 방 생성 모달 (기존과 동일) */}
             {showCreate && (
                 <div className="modal-overlay">
                     <div className="modal-content">

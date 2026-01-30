@@ -240,6 +240,22 @@ public class GameHub : Hub
         }
     }
 
+    public async Task DeclareStop(string roomId)
+    {
+        // 서비스의 로직 호출
+        _roomService.DeclareStop(roomId, Context.ConnectionId);
+        
+        // 알림 메시지 전송
+        var room = _roomService.GetRoom(roomId);
+        var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+        if (player != null && room.IsStopDeclared)
+        {
+            await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 STOP을 선언했습니다! 카드를 버리면 게임이 종료됩니다.");
+            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        }
+    }
+
+
     // 가로채기 가능 여부 판단 보조 메서드 (Hub 내부에 작성하거나 Service로 이동 가능)
     private bool CheckCanIntercept(Player player, PlayingCard playedCard)
     {
@@ -320,11 +336,11 @@ public class GameHub : Hub
         if (success)
         {
             // 방 안의 모든 유저에게 덱이 갱신되었음을 알림
-            await Clients.Group(roomId).SendAsync("DeckReshuffled", "버려진 카드가 다시 덱으로 들어갔습니다.");
+            await Clients.Group(roomId).SendAsync("ReshuffleDeck", "버려진 카드가 다시 덱으로 들어갔습니다.");
             
             // 갱신된 방 상태 전송 (덱 개수 등을 클라이언트에서 업데이트하기 위함)
             var room = _roomService.GetRoom(roomId);
-            await Clients.Group(roomId).SendAsync("UpdateRoom", room);
+            await Clients.Group(roomId).SendAsync("ReshuffleDeck", room);
         }
     }
 
