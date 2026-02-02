@@ -114,6 +114,22 @@ export default function GamePage() {
         if (!isSubscribed.current) {
             connection.on("RoomUpdated", onUpdate);
             connection.on("ReshuffleDeck", onUpdate);
+
+            // ✅ GameStarted를 별도로 처리하여 이전 우승 데이터 삭제
+            connection.on("GameStarted", (data) => {
+                // 1. 이전 게임의 흔적(우승자, 우승패, 결과판 표시 여부 등) 초기화
+                setGame((prev: any) => ({
+                    ...prev,
+                    winnerName: null,
+                    winnerHand: [],
+                    isBagaji: false,
+                    showResult: false // 결과판이 떠있다면 닫기
+                }));
+                
+                // 2. 공통 업데이트 로직 실행
+                onUpdate(data);
+            });
+
             connection.on("GameStarted", onUpdate);
             connection.on("ShowResultBoard", onUpdate);
             connection.on("HideResultBoard", onHideResultBoard);
@@ -251,13 +267,20 @@ export default function GamePage() {
             return myCardRank === "JK" || myCardRank === "JOKER";
         });
 
-        // 7. 뻥 조건 판단
-        // 조건 1: 동일 숫자 카드가 2장 이상 있음
-        // 조건 2: 동일 숫자 카드가 1장 있고, 조커가 1장 이상 있음
-        const hasTwoSameCards = sameRankCards.length >= 2;
-        const hasOneCardAndOneJoker = sameRankCards.length >= 1 && jokerCards.length >= 1;
+        // 7. 뻥 구성 우선순위 결정 (7, 7, 조커 상황 대응)
+        let finalPungCards: any[] = [];
+        
+        // 숫자 카드를 우선순위로 먼저 채움 (최대 2장)
+        finalPungCards.push(...sameRankCards.slice(0, 2));
 
-        return hasTwoSameCards || hasOneCardAndOneJoker;
+        // 숫자 카드가 2장이 안 될 때만 조커를 사용함
+        if (finalPungCards.length < 2) {
+            const needed = 2 - finalPungCards.length;
+            finalPungCards.push(...jokerCards.slice(0, needed));
+        }
+
+        // 최종 결과: 우선순위에 따라 구성된 카드가 2장이면 뻥 가능(true)
+        return finalPungCards.length === 2;
     };
 
     const canPung = checkCanPung();

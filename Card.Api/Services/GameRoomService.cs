@@ -1167,22 +1167,19 @@ public class GameRoomService
         }
     }
 
-    // 플레이어 점수 업데이트 로직
+    // 승률 계산 매서드
     private void UpdatePlayerStats(GameRoom room)
     {
-        // 이번 라운드 승자 - 점수가 가장 낮은 사람
-        var roundWinner = room.Players.OrderBy(p => p.Score).First();
+        // 최종 승자 ID 추출(점수가 가장 낮은 사람)
+        var finalWinner = room.Players.OrderBy(p => p.TotalScore).First();
 
-        foreach(var p in room.Players)
+        foreach(var player in room.Players)
         {
-            p.TotalGames += 1; // 판수 증가
-            if(p.PlayerId == roundWinner.PlayerId) p.Wins += 1; // 승리 횟수 증가
-
-            // 최고 점수 기록 업데이트 (기존보다 높으면 갱신)
-            if (p.TotalScore > p.MaxScore) p.MaxScore = p.TotalScore;
-
-            // 최저 점수 기록 업데이트 (기존보다 낮으면 갱신)
-            if (p.TotalScore < p.MinScore) p.MinScore = p.TotalScore;
+            player.TotalGames += 1; // 모든 참가자 판 수 증가
+            if(player.PlayerId == finalWinner.PlayerId)
+            {
+                player.Wins += 1; // 승자 승리 횟수 증가
+            }
         }
     }
 }

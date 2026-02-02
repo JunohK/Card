@@ -209,13 +209,34 @@ public class GameHub : Hub
             var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
             if (player == null) return;
 
-            // 1. 내 패에서 상대가 버린 카드와 같은 숫자의 인덱스 2개를 찾음
-            var handIndexes = player.Hand
+            // --- 수정된 부분: 숫자 카드 우선순위 로직 ---
+            // 1-1. 내 패에서 상대가 버린 카드와 같은 숫자의 인덱스들을 먼저 찾음
+            var sameRankIndexes = player.Hand
                 .Select((card, index) => new { card, index })
-                .Where(x => x.card.Rank == targetCard.Rank || x.card.Rank == "Joker" || x.card.Rank == "JK")
-                .Take(2)
+                .Where(x => x.card.Rank == targetCard.Rank)
                 .Select(x => x.index)
                 .ToList();
+
+            // 1-2. 조커 카드들의 인덱스를 찾음
+            var jokerIndexes = player.Hand
+                .Select((card, index) => new { card, index })
+                .Where(x => x.card.Rank == "Joker" || x.card.Rank == "JK")
+                .Select(x => x.index)
+                .ToList();
+
+            // 1-3. 최종적으로 버릴 2개의 인덱스 결정 (숫자 우선 -> 조커 순)
+            var handIndexes = new List<int>();
+            
+            // 숫자를 먼저 다 담음 (최대 2개)
+            handIndexes.AddRange(sameRankIndexes.Take(2));
+
+            // 아직 2개가 안 채워졌다면 조커로 채움
+            if (handIndexes.Count < 2)
+            {
+                int needed = 2 - handIndexes.Count;
+                handIndexes.AddRange(jokerIndexes.Take(needed));
+            }
+            // ------------------------------------------
 
             if (handIndexes.Count >= 2)
             {
