@@ -3,6 +3,10 @@ using Card.Api.Domain;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Authorization;
 using Card.Api.GameLogic;
+using Card.Api.Data;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
+using SQLitePCL;
 
 namespace Card.Hubs;
 
@@ -11,11 +15,13 @@ public class GameHub : Hub
 {
     private readonly GameRoomService _roomService;
     private readonly PlayerConnectionService _connService;
+    private readonly GameDbContext _context;
 
-    public GameHub(GameRoomService roomService, PlayerConnectionService connService)
+    public GameHub(GameRoomService roomService, PlayerConnectionService connService, GameDbContext context)
     {
         _roomService = roomService;
         _connService = connService;
+        _context = context;
     }
 
     // ✅ 로비 진입 (닉네임 전송 및 목록 갱신)
@@ -192,7 +198,13 @@ public class GameHub : Hub
     {
         int currentIndex = room.Players.FindIndex(p => p.PlayerId == currentPlayerId);
         int nextIndex = (currentIndex + 1) % room.Players.Count;
-        room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
+
+        // 다음 플레이어 결정
+        var nextPlayer = room.Players[nextIndex];
+        room.CurrentTurnPlayerId = nextPlayer.PlayerId;
+
+        // 다음 턴을 시작할 플레이어의 턴 횟수 증가
+        nextPlayer.RoundTurnCount++;
     }
 
     // 🔥 [뻥 액션] B가 버튼을 클릭했을 때 호출
@@ -432,22 +444,6 @@ public class GameHub : Hub
             await Clients.Caller.SendAsync("ErrorMessage", "라운드 전환 중 오류: " + ex.Message);
         }
     }
-
-    // public async Task GoToNextRound(string roomId)
-    // {
-    //     var room = _roomService.GetRoom(roomId);
-    //     if (room == null || room.HostPlayerId != Context.ConnectionId) return;
-
-    //     if (!room.IsFinished && room.IsRoundEnded)
-    //     {
-    //         // 다음 라운드 번호 증가 및 카드 재분배
-    //         room.CurrentRound++;
-    //         // 서비스에 SetupRound를 public으로 하거나, 아래처럼 별도 처리 메서드 호출
-    //         _roomService.StartGame(roomId, room.MaxRounds); // 재시작 로직 활용
-            
-    //         await Clients.Group(roomId).SendAsync("GameStarted", room);
-    //     }
-    // }
     
     // 기권
     public async Task GiveUp(string roomId)
@@ -499,5 +495,60 @@ public class GameHub : Hub
     {
         _connService.Unbind(Context.ConnectionId);
         await base.OnDisconnectedAsync(exception);
+    }
+
+// ✅ 내 프로필 가져오기 (Nickname 사용)
+    public async Task<object?> GetMyProfile()
+    {
+        var identityName = Context.User?.Identity?.Name;
+        if (string.IsNullOrEmpty(identityName)) return null;
+
+        // DB에서 Nickname 컬럼을 조회
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.Nickname == identityName);
+
+        if (user == null) return null;
+
+        return new
+        {
+            name = user.Nickname, // 클라이언트가 기대하는 JSON 필드명은 name으로 유지
+            wins = user.Wins,
+            totalGames = user.TotalGames,
+            maxScore = user.MaxScore,
+            minScore = user.MinScore
+        };
+    }
+
+    // ✅ 게임 결과 업데이트 (Nickname 사용)
+    public async Task UpdateGameResult(string roomId)
+    {
+        var room = _roomService.GetRoom(roomId);
+        if (room == null || !room.IsFinished) return;
+
+        foreach (var p in room.Players)
+        {
+            // Player의 Name과 User의 Nickname을 비교
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Nickname == p.Name);
+
+            if (user != null)
+            {
+                user.TotalGames += 1;
+
+                if (p.Name == room.WinnerName)
+                {
+                    user.Wins += 1;
+                }
+                
+                // 스코어 기록 업데이트 로직
+                if (p.TotalScore > user.MaxScore) user.MaxScore = p.TotalScore;
+            }
+        }
+
+        // SQLite DB에 변경사항 저장
+        await _context.SaveChangesAsync();
+        
+        // 유저 스탯이 갱신되었음을 클라이언트에 알림
+        await Clients.Group(roomId).SendAsync("UpdateUserStats");
     }
 }

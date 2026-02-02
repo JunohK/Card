@@ -9,6 +9,14 @@ const ENEMY_POSITIONS = [
     { top: '40%', left: '90%' }, { top: '70%', left: '85%' },
 ];
 
+type MyProfile = {
+    name: string;
+    wins: number;
+    totalGames: number;
+    maxScore: number;
+    minScore: number;
+}
+
 export default function GamePage() {
     const { roomId } = useParams<{ roomId: string }>();
     const navigate = useNavigate();
@@ -16,7 +24,34 @@ export default function GamePage() {
     const [showRoundResult, setShowRoundResult] = useState(false);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [lastDrawnCardKey, setLastDrawnCardKey] = useState<string | null>(null);
+    const [input, setInput] = useState("");
+    const [connected, setConnected] = useState(connection.state === "Connected");
+    const [messages, setMessages] = useState<string[]>([]);
+    const [myProfile, setMyProfile] = useState<MyProfile>({ 
+        name: "", 
+        wins: 0, 
+        totalGames: 0, 
+        maxScore: 0, 
+        minScore: 0 
+    });
+    const [isChatMinimized, setIsChatMinimized] = useState(true); // false로 하면 최소화가 기본값
+    const [hasNewMessage, setHasNewMessage] = useState(false);
     
+    // // 메시지가 새로 추가되면 자동으로 채팅창을 펼침
+    // useEffect(() => {
+    //     if (messages.length > 0) {
+    //         setIsChatMinimized(false);
+    //     }
+    // }, [messages]);
+    const chatRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        // chatRef.current가 존재하는지(null이 아닌지) 체크 후 호출
+        if (chatRef.current) {
+            chatRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+    }, [messages]);
+
     // ✅ 에러 메시지 처리를 위한 상태 추가
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -33,7 +68,7 @@ export default function GamePage() {
     const getRankValue = (rank: string) => {
         if (!rank) return 0;
         const r = rank.toString().toUpperCase();
-        if (r === "JOKER" || r === "JK") return 99; 
+        if (r === "JOKER" || r === "JK") return 99;
         if (r === "A") return 1;
         if (r === "J") return 11;
         if (r === "Q") return 12;
@@ -49,9 +84,15 @@ export default function GamePage() {
 
     const sortCards = (cards: any[]) => {
         if (!cards) return [];
-        return [...cards].sort((a, b) => 
+        return [...cards].sort((a, b) =>
             getRankValue(a.rank || a.Rank) - getRankValue(b.rank || b.Rank)
         );
+    };
+
+    const sendMessage = async () => {
+        if (!input.trim() || connection.state !== "Connected") return;
+        await connection.invoke("SendChatMessage", input);
+        setInput("");
     };
 
     const unsubscribeAll = () => {
@@ -67,7 +108,7 @@ export default function GamePage() {
     };
 
     useEffect(() => {
-        const onUpdate = (data: any) => {
+        const onUpdate = async (data: any) => {
             if (!data) return;
 
             const playersArr = data.players || data.Players || [];
@@ -87,14 +128,17 @@ export default function GamePage() {
 
             setGame({ ...data });
             
-            // ✅ 수정: 라운드 종료와 게임 전체 종료를 명확히 구분
             const roundEnded = data.isRoundEnded || data.IsRoundEnded;
             const gameFinished = data.isFinished || data.IsFinished;
 
             if (gameFinished) {
-                // 게임이 아예 끝났다면 라운드 결과창을 건너뛰고 바로 최종 결과창으로 유도하거나,
-                // 상태를 강제 설정하여 다음 라운드 버튼이 안 보이게 해야 함
                 setShowRoundResult(false); 
+                try {
+                    // 서버에 게임 결과 반영 요청
+                    await connection.invoke("UpdateGameResult", roomId);
+                } catch (err) {
+                    console.error("DB 업데이트 요청 실패:", err);
+                }
             } else if (roundEnded) {
                 setShowRoundResult(true);
             }
@@ -111,37 +155,53 @@ export default function GamePage() {
             navigate(`/room/${targetRoomId || roomId}`, { replace: true });
         };
 
+        const onReceiveMessage = (user: string, message: string) => {
+            setMessages(prev => [...prev, `${user} : ${message}`]);
+            if (isChatMinimized) {
+                setHasNewMessage(true);
+            }
+        };
+
+        const onConnectedUser = (data: any) => {
+            if (typeof data === "string") {
+                setMyProfile(prev => ({ ...prev, name: data }));
+            } else {
+                setMyProfile({
+                    name: data.nickname || data.name || "",
+                    wins: data.wins || 0,
+                    totalGames: data.totalGames || 0,
+                    maxScore: data.maxScore || 0,
+                    minScore: data.minScore || 0
+                });
+            }
+        };
+
         if (!isSubscribed.current) {
             connection.on("RoomUpdated", onUpdate);
             connection.on("ReshuffleDeck", onUpdate);
+            connection.on("ReceiveMessage", onReceiveMessage);
+            connection.on("ConnectedUser", onConnectedUser);
 
-            // ✅ GameStarted를 별도로 처리하여 이전 우승 데이터 삭제
             connection.on("GameStarted", (data) => {
-                // 1. 이전 게임의 흔적(우승자, 우승패, 결과판 표시 여부 등) 초기화
                 setGame((prev: any) => ({
                     ...prev,
                     winnerName: null,
                     winnerHand: [],
                     isBagaji: false,
-                    showResult: false // 결과판이 떠있다면 닫기
+                    showResult: false 
                 }));
-                
-                // 2. 공통 업데이트 로직 실행
                 onUpdate(data);
             });
 
-            connection.on("GameStarted", onUpdate);
             connection.on("ShowResultBoard", onUpdate);
             connection.on("HideResultBoard", onHideResultBoard);
             connection.on("GameTerminated", onGameTerminated);
             connection.on("ExitToRoom", onExitToRoom);
 
-            // ✅ 셔플 완료 메시지 알림
             connection.on("ReshuffleDeck", (msg) => {
                 console.log(msg);
             });
 
-            // ✅ 기존 alert(msg) 대신 커스텀 팝업 상태 업데이트로 변경
             connection.on("ErrorMessage", (msg) => {
                 setErrorMsg(msg);
                 setTimeout(() => setErrorMsg(null), 3000); 
@@ -159,8 +219,17 @@ export default function GamePage() {
             }
         });
 
-        return () => unsubscribeAll();
-    }, [roomId, myId, navigate]);
+        // 프로필 정보 로드
+        connection.invoke("GetMyProfile").then(data => {
+            if (data) setMyProfile(data);
+        }).catch(err => console.error("프로필 로드 실패:", err));
+
+        return () => {
+            connection.off("ReceiveMessage", onReceiveMessage);
+            connection.off("ConnectedUser", onConnectedUser);
+            unsubscribeAll();
+        };
+    }, [roomId, myId, navigate, isChatMinimized]);
 
     const handleExit = () => {
         if (window.confirm("정말 기권하시겠습니까? 전체 게임이 종료되며 대기실로 이동합니다.")) {
@@ -224,13 +293,20 @@ export default function GamePage() {
      */
     const myTurnCount = me?.roundTurnCount ?? me?.RoundTurnCount ?? 0;
     const allPlayersActed = players.every((p: any) => (p.roundTurnCount ?? p.RoundTurnCount ?? 0) >= 1);
-    
+
     // 최종 판단 로직
-    const canDeclareWin = isMyTurn && (
-        myTurnCount >= 2 || 
-        allPlayersActed || 
-        (discardPile.length > (players.length * 2)) // 서버 카운트 장애 대비 백업 조건
-    );
+    const checkCanDeclareWin = () => {
+        if (!isMyTurn) return false;
+
+        // 'me' 대신 'myInfo'로 이름을 바꾸어 중복 선언 에러 방지
+        const myInfo = players.find((p: any) => (p.playerId || p.PlayerId) === myId);
+        const currentTurnCount = myInfo?.roundTurnCount || myInfo?.RoundTurnCount || 0;
+
+        // 내가 2번째 턴 이상일 때만 버튼 활성화
+        return currentTurnCount >= 2;
+    };
+
+    const canDeclareWin = checkCanDeclareWin();
 
     const checkCanPung = () => {
         // 1. 기본 조건: 내 손에 카드가 5장일 때만 가능
@@ -715,6 +791,154 @@ export default function GamePage() {
                     </div>
                 </div>
             )}
+            <div className="game-mini-chat" style={{
+                position: 'fixed',
+                bottom: '20px',
+                right: '20px',
+                width: '260px',
+                // 최소화 상태일 때 높이를 45px(헤더+경계)로 고정
+                height: isChatMinimized ? '45px' : '320px',
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                borderRadius: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                border: '1px solid #334155',
+                zIndex: 10002,
+                fontSize: '0.85rem',
+                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                overflow: 'hidden',
+                transition: 'height 0.3s ease' // 높이 변경 시 부드러운 효과
+            }}>
+                {/* 헤더: 클릭 시 최소화/최대화 토글 및 알림 초기화 */}
+                <div 
+                    onClick={() => {
+                        setIsChatMinimized(!isChatMinimized);
+                        setHasNewMessage(false); // ✅ 클릭 시 알림 상태 초기화
+                    }}
+                    style={{ 
+                        padding: '10px 12px', 
+                        // ✅ 새 메시지가 있고 최소화 상태일 때 배경색을 노란색(#eab308)으로 변경
+                        background: (hasNewMessage && isChatMinimized) ? '#eab308' : '#1e293b', 
+                        borderBottom: isChatMinimized ? 'none' : '1px solid #334155', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between', 
+                        cursor: 'pointer',
+                        userSelect: 'none',
+                        transition: 'background-color 0.3s ease'
+                    }}
+                >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ 
+                            width: '8px', 
+                            height: '8px', 
+                            borderRadius: '50%', 
+                            // ✅ 알림 중일 때는 상태 표시등도 대비를 위해 어둡게 표시 가능
+                            backgroundColor: connected ? '#22c55e' : '#ef4444' 
+                        }}></div>
+                        <span style={{ 
+                            fontWeight: 'bold', 
+                            // ✅ 노란 배경일 때 글자색을 어두운 남색(#0f172a)으로 변경하여 가독성 확보
+                            color: (hasNewMessage && isChatMinimized) ? '#0f172a' : '#cbd5e1', 
+                            fontSize: '0.75rem', 
+                            letterSpacing: '0.05em' 
+                        }}>
+                            {(hasNewMessage && isChatMinimized) ? 'NEW MESSAGE!' : 'LIVE CHAT'}
+                        </span>
+                    </div>
+                    {/* 최소화 상태 표시 아이콘 */}
+                    <span style={{ 
+                        color: (hasNewMessage && isChatMinimized) ? '#0f172a' : '#94a3b8', 
+                        fontSize: '0.7rem' 
+                    }}>
+                        {isChatMinimized ? '▲' : '▼'}
+                    </span>
+                </div>
+
+                {/* 메시지 리스트: 최소화 상태가 아닐 때만 렌더링 */}
+                {!isChatMinimized && (
+                    <div className="chat-messages" style={{
+                        flex: 1,
+                        overflowY: 'auto',
+                        padding: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '8px'
+                    }}>
+                        {messages.map((m, i) => {
+                            const splitIdx = m.indexOf(" : ");
+                            if (splitIdx === -1) return null;
+
+                            const user = m.substring(0, splitIdx).trim(); // 공백 제거
+                            const msg = m.substring(splitIdx + 3);
+                            const isMe = myProfile.name && user === myProfile.name.trim(); // 내 이름과 비교
+
+                            return (
+                                <div key={i} style={{
+                                    alignSelf: isMe ? 'flex-end' : 'flex-start',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: isMe ? 'flex-end' : 'flex-start',
+                                    maxWidth: '85%'
+                                }}>
+                                    {!isMe && <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginBottom: '2px' }}>{user}</div>}
+                                    <div style={{
+                                        backgroundColor: isMe ? '#2563eb' : '#334155',
+                                        color: 'white',
+                                        padding: '6px 12px',
+                                        borderRadius: isMe ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+                                        fontSize: '0.8rem'
+                                    }}>
+                                        {msg}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                        {/* 자동 스크롤을 위한 하단 지점 */}
+                        <div ref={chatRef} />
+                    </div>
+                )}
+
+                {/* 입력창: 최소화 상태가 아닐 때만 하단에 고정 */}
+                {!isChatMinimized && (
+                    <div style={{ padding: '10px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', gap: '6px' }}>
+                        <input 
+                            className="chat-input"
+                            style={{
+                                flex: 1,
+                                backgroundColor: '#1e293b',
+                                border: '1px solid #475569',
+                                color: 'white',
+                                borderRadius: '6px',
+                                padding: '6px 10px',
+                                fontSize: '0.8rem',
+                                outline: 'none'
+                            }}
+                            placeholder="메시지 입력..." 
+                            value={input} 
+                            onChange={e => setInput(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+                        />
+                        <button 
+                            onClick={sendMessage}
+                            disabled={!connected}
+                            style={{
+                                backgroundColor: '#3b82f6',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '6px',
+                                padding: '6px 12px',
+                                fontSize: '0.75rem',
+                                fontWeight: 'bold',
+                                cursor: 'pointer',
+                                opacity: connected ? 1 : 0.5
+                            }}
+                        >
+                            전송
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }

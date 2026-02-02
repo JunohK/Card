@@ -120,6 +120,13 @@ public class GameRoomService
         room.CurrentRound = 1;
         room.IsStarted = true;
         room.IsFinished = false;
+        room.WinnerHand.Clear(); // 이전 우승자의 카드리스트 비움
+
+        // STOP 관련 상태 초기화
+        room.IsStopDeclared = false;
+        room.StopCallerId = "";
+        room.WinnerName = null;
+        room.WinnerPlayerId = null;
 
         // 전체 게임 시작 시에만 누적 점수 0으로 리셋
         foreach (var p in room.Players) {
@@ -135,6 +142,14 @@ public class GameRoomService
         var newDeck = CreateNewDeck();
         room.Deck = newDeck.OrderBy(a => Guid.NewGuid()).ToList();
         
+        // ✅ 라운드 시작 시 우승자 정보 리셋
+        room.IsRoundEnded = false;
+        room.IsStopDeclared = false;
+        room.StopCallerId = "";
+        room.WinnerName = null;
+        room.WinnerPlayerId = null;
+        room.WinnerHand.Clear(); // 라운드 시작 시 카드 리스트 초기화
+
         foreach (var p in room.Players)
         {
             p.Hand.Clear();
@@ -300,13 +315,14 @@ public class GameRoomService
         room.WinnerPlayerId = stopPlayer.PlayerId;
         room.WinnerHand = new List<PlayingCard>(stopPlayer.Hand);
 
-        // 1. STOP 선언자의 현재 패 점수 계산 (버린 후의 남은 패 점수)
-        int stopPlayerScore = CalculateFinalScore(stopPlayer.Hand, false);
+        // 1. STOP 선언자의 현재 패 점수 계산 (바가지/독박 체크용)
+        // STOP 선언자도 점수 계산 로직은 동일하게 CalculateLoserScore를 사용합니다.
+        int stopPlayerScore = CalculateLoserScore(stopPlayer.Hand);
 
         // 2. 선언자 제외, 현재 패가 2장인 다른 플레이어들의 최소 점수 찾기
         var otherTwoCardScores = room.Players
             .Where(p => p.PlayerId != stopPlayer.PlayerId && p.Hand.Count == 2)
-            .Select(p => CalculateFinalScore(p.Hand, false))
+            .Select(p => CalculateLoserScore(p.Hand))
             .ToList();
 
         // 비교 대상(2장인 사람)이 있고, 내 점수가 그들 중 최솟값보다 크거나 같다면 '독박'
@@ -315,25 +331,32 @@ public class GameRoomService
         room.WinnerName = isDokbak ? $"{stopPlayer.Name} (STOP 실패)" : $"{stopPlayer.Name} (STOP 성공)";
         room.LastWinType = isDokbak ? "STOP 독박 (+50점)" : "STOP 성공 (0점)";
 
+        // 3. 모든 플레이어 점수 계산 (패배자 로직 적용)
         foreach (var p in room.Players)
         {
             if (p.PlayerId == stopPlayer.PlayerId)
             {
-                // 독박이면 본인 카드 합 + 50점, 성공이면 0점
+                // 독박이면 본인 카드 합(세트 제외 점수) + 50점, 성공이면 0점
                 p.Score = isDokbak ? (stopPlayerScore + 50) : 0;
             }
             else
             {
-                // 나머지 인원은 손에 든 만큼 계산
-                p.Score = CalculateFinalScore(p.Hand, false);
+                // ✅ 핵심: 모든 패배자들은 사용자님이 만든 CalculateLoserScore 로직을 타게 함
+                p.Score = CalculateLoserScore(p.Hand);
             }
+            
+            // 누적 점수 반영
             p.TotalScore += p.Score;
+            
+            // 디버깅용 로그
+            Console.WriteLine($"[STOP 결과] {p.Name}: 이번 라운드 {p.Score}점, 총점 {p.TotalScore}점");
         }
 
-        // 상태 초기화
+        // 4. 상태 초기화 (다음 판을 위해)
         room.IsStopDeclared = false;
         room.StopCallerId = "";
 
+        // 전체 게임 종료 조건 체크 (점수 초과 등)
         CheckAndEndFullGame(room);
     }
 
@@ -366,10 +389,20 @@ public class GameRoomService
         // 턴 설정을 위해 이전 라운드 승리자를 저장
         string nextFirstPlayer = room.WinnerPlayerId;
 
-        // 라운드 번호 증가 및 상태 초기화
+        // 2. 라운드 번호 증가 및 '핵심' 상태 초기화
         room.CurrentRound++;      
         room.IsRoundEnded = false; 
+        room.IsFinished = false;     // 혹시 true였다면 리셋
+        
+        // ✅ [가장 중요] STOP 선언 상태 초기화
+        room.IsStopDeclared = false;
+        room.StopCallerId = string.Empty;
+
+        // ✅ 우승 데이터 초기화
         room.WinnerPlayerId = string.Empty;
+        room.WinnerName = null;
+        room.WinnerHand.Clear(); // 이전 판 우승자 카드 리스트 비움
+        
         room.LastDiscardedCard = null;
         room.DiscardPile.Clear();
 

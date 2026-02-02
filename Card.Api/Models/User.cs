@@ -14,4 +14,10 @@ public class User
     public string Nickname { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; }= DateTime.UtcNow;
+
+    // 통계 데이터 필드 추가
+    public int Wins { get; set; } = 0;
+    public int TotalGames { get; set; } = 0;
+    public int MaxScore { get; set; } = 0;
+    public int MinScore { get; set; } = 0;
 }
