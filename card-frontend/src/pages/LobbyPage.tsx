@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/useAuth";
 import { connection, ensureConnection } from "../signalr/connection";
@@ -12,7 +12,6 @@ type RoomSummary = {
     isLocked: boolean;
 }
 
-// 1. 플레이어 상세 정보 타입 확장 (기존 Wins, TotalGames + 최고/최저 점수)
 type MyProfile = {
     name: string;
     wins: number;
@@ -25,12 +24,14 @@ export default function LobbyPage() {
     const navigate = useNavigate();
     const { logout } = useAuth();
 
+    // 스크롤을 제어하기 위한 Ref 생성
+    const chatEndRef = useRef<HTMLDivElement>(null);
+
     const [connected, setConnected] = useState(connection.state === "Connected");
     const [rooms, setRooms] = useState<RoomSummary[]>([]);
     const [messages, setMessages] = useState<string[]>([]);
     const [input, setInput] = useState("");
     
-    // 프로필 정보 상태 관리 (초기값 설정)
     const [myProfile, setMyProfile] = useState<MyProfile>({ 
         name: "", 
         wins: 0, 
@@ -40,15 +41,19 @@ export default function LobbyPage() {
     });
 
     const [showCreate, setShowCreate] = useState(false);
-    const [showProfile, setShowProfile] = useState(false); // 2. 프로필 모달 상태 추가
+    const [showProfile, setShowProfile] = useState(false); 
     const [title, setTitle] = useState("");
     const [password, setPassword] = useState("");
+
+    // 메시지 목록이 변경될 때마다 하단으로 스크롤 이동
+    useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, [messages]);
 
     useEffect(() => {
         let mounted = true;
 
         const setup = async () => {
-            // 서버에서 데이터 수신 시 필드 매핑
             connection.on("ConnectedUser", (data: any) => {
                 if (mounted) {
                     if (typeof data === "string") {
@@ -105,7 +110,6 @@ export default function LobbyPage() {
         };
     }, [navigate]);
 
-    // 승률 계산 로직
     const winRate = myProfile.totalGames > 0 
         ? ((myProfile.wins / myProfile.totalGames) * 100).toFixed(1) 
         : "0";
@@ -163,7 +167,6 @@ export default function LobbyPage() {
                         <div className="lobby-title-text">
                             <h1>LOBBY</h1>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px' }}>
-                                {/* 3. 클릭 가능한 사용자 이름 (언더라인 추가) */}
                                 <p style={{ margin: 0, cursor: 'pointer'}} onClick={() => setShowProfile(true)}>
                                     Player: <span style={{ color: '#38bdf8', fontWeight: 'bold' }}>{myProfile.name || "Loading..."}</span>
                                 </p>
@@ -239,6 +242,8 @@ export default function LobbyPage() {
                                 </div>
                             );
                         })}
+                        {/* 스크롤 하단을 가리키는 태그 */}
+                        <div ref={chatEndRef} />
                     </div>
 
                     <div className="chat-input-area">
@@ -261,7 +266,7 @@ export default function LobbyPage() {
                 </div>
             </div>
 
-            {/* 4. 내 정보 프로필 모달 */}
+            {/* 내 정보 프로필 모달 */}
             {showProfile && (
                 <div className="modal-overlay">
                     <div className="modal-content" style={{ maxWidth: '350px' }}>

@@ -308,6 +308,25 @@ public class GameRoomService
         }
     }
 
+    public void DeclarePung(string roomId, string playerId)
+    {
+        var room = GetRoom(roomId);
+        if (room == null) return;
+
+        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
+        if (player == null) return;
+
+        // 1. '뻥' 선언 상태 변경 (필요 시 Room 클래스에 IsPungActive 등 추가)
+        // 여기서는 간단히 마지막 액션 정보를 업데이트하거나 
+        // 즉시 카드를 지급하는 로직을 넣습니다.
+
+        // 예시: 뻥을 하면 현재 턴을 뻥 선언자에게 강제로 넘기는 경우
+        room.CurrentTurnPlayerId = playerId;
+
+        // 2. 로그 기록 (디버깅용)
+        Console.WriteLine($"[PUNG] Room: {roomId}, Player: {player.Name} declared Pung!");
+    }
+
     // STOP 전용 종료 처리
     private void ApplyStopWin(GameRoom room, Player stopPlayer)
     {
@@ -329,7 +348,7 @@ public class GameRoomService
         bool isDokbak = otherTwoCardScores.Any() && stopPlayerScore >= otherTwoCardScores.Min();
 
         room.WinnerName = isDokbak ? $"{stopPlayer.Name} (STOP 실패)" : $"{stopPlayer.Name} (STOP 성공)";
-        room.LastWinType = isDokbak ? "STOP 독박 (+50점)" : "STOP 성공 (0점)";
+        room.LastWinType = isDokbak ? "STOP 실패 (+50점)" : "STOP 성공 (0점)";
 
         // 3. 모든 플레이어 점수 계산 (패배자 로직 적용)
         foreach (var p in room.Players)

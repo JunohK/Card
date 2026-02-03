@@ -3,21 +3,26 @@ import { authStorage } from "../auth/authStorage";
 
 // 1. 공통으로 사용할 주소 생성 함수 (수정됨)
 export const getBaseUrl = (): string => {
-    // 환경변수가 있다면 우선 사용
-    const envUrl = import.meta.env.VITE_SIGNALR_URL;
-    
-    // 만약 envUrl에 /gamehub가 붙어있다면 제거하고 순수 도메인만 추출 (API 호출용)
-    const pureUrl = envUrl ? envUrl.replace("/gamehub", "") : null;
-
-    if (pureUrl) return pureUrl;
-
     if (typeof window !== "undefined") {
         const hostname = window.location.hostname;
+
+        // 1. 순수 로컬 환경 체크 (최우선)
+        // 로컬에서 개발 중일 때는 무조건 로컬 백엔드 포트를 바라보게 합니다.
         if (hostname === "localhost" || hostname === "127.0.0.1") {
             return "http://localhost:5101";
         }
+
+        // 2. 배포 환경(Vercel)인 경우 환경 변수 사용
+        const envUrl = import.meta.env.VITE_SIGNALR_URL;
+        if (envUrl) {
+            // /gamehub가 포함된 경우 제거하여 API 호출용 순수 도메인 반환
+            return envUrl.replace("/gamehub", "");
+        }
+
+        // 3. 기타 상황 (접속한 도메인 기준)
         return window.location.origin;
     }
+    
     return "http://localhost:5101";
 };
 

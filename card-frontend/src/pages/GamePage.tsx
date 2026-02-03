@@ -399,8 +399,19 @@ export default function GamePage() {
 
     const canStop = checkCanStop();
 
-    return (
-        <div className="game-container" style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
+    /** 🔥 뻥 버튼 클릭 핸들러 */
+    const handlePung = () => {
+        // 뻥 버튼을 누를 수 있는 조건이 있다면 체크 (예: 내 차례가 아닐 때도 가능한지 등)
+        // if (!canPung) return; 
+
+        if (window.confirm("뻥을 선언하시겠습니까? 성공하면 상대의 차례를 뺏어옵니다!")) {
+            connection.invoke("DeclarePung", roomId)
+                .catch(err => console.error("뻥 호출 실패:", err));
+        }
+    };
+
+return (
+        <div className={`game-container ${isMyTurn ? "my-turn-flash" : ""}`} style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
             <style>{`
                 @keyframes fadeInModal {
                     0% { opacity: 0; }
@@ -420,6 +431,21 @@ export default function GamePage() {
                     50% { box-shadow: 0 0 30px #e74c3c; background-color: #ff5e4d; }
                     100% { box-shadow: 0 0 5px #e74c3c; }
                 }
+                /* ✨ 내 턴일 때 화면 테두리 금색 광채 애니메이션 */
+                @keyframes goldGlow {
+                    0% { box-shadow: inset 0 0 10px #f1c40f; }
+                    50% { box-shadow: inset 0 0 40px #f39c12; }
+                    100% { box-shadow: inset 0 0 10px #f1c40f; }
+                }
+                /* ✨ 뻥/알림 메시지 애니메이션 */
+                @keyframes notifyPop {
+                    0% { transform: translate(-50%, -60%); opacity: 0; }
+                    10% { transform: translate(-50%, -50%); opacity: 1; }
+                    90% { transform: translate(-50%, -50%); opacity: 1; }
+                    100% { transform: translate(-50%, -40%); opacity: 0; }
+                }
+
+                .my-turn-flash { animation: goldGlow 1.5s infinite ease-in-out; }
                 .new-card-highlight { animation: blueGlow 0.8s ease-in-out infinite !important; z-index: 100 !important; }
                 .pung-active { animation: redPulse 0.5s infinite !important; background-color: #e74c3c !important; color: white !important; border: 2px solid white !important; cursor: pointer !important; opacity: 1 !important; z-index: 1000; }
                 .rule-btn-fixed { position: fixed; bottom: 20px; left: 20px; padding: 10px 20px; background: #f1c40f; color: #2c3e50; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
@@ -427,9 +453,21 @@ export default function GamePage() {
                 .reshuffle-badge:hover { background: #3498db; }
                 .discard-modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 9999; }
                 .discard-modal-content { background: #2c3e50; width: 80%; max-width: 600px; max-height: 80vh; overflow-y: auto; padding: 20px; border-radius: 12px; border: 1px solid #34495e; }
+                
+                /* 알림 오버레이 스타일 */
+                .turn-notify-overlay {
+                    position: fixed; top: 35%; left: 50%; transform: translate(-50%, -50%);
+                    background: rgba(0, 0, 0, 0.85); color: #f1c40f; padding: 20px 50px;
+                    border-radius: 60px; z-index: 11000; font-weight: bold; font-size: 2.2rem;
+                    border: 4px solid #f1c40f; pointer-events: none; animation: notifyPop 2.5s forwards;
+                    box-shadow: 0 0 30px rgba(241, 196, 15, 0.4); text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+                }
             `}</style>
 
-            {/* 🔴 조그만 에러 알림 팝업 UI 추가 */}
+            {/* 📢 뻥 성공 및 턴 시작 알림 (alertMsg 상태가 있을 때 노출) */}
+            {/* {alertMsg && <div className="turn-notify-overlay">📢 {alertMsg}</div>} */}
+
+            {/* 🔴 조그만 에러 알림 팝업 UI */}
             {errorMsg && (
                 <div style={{
                     position: 'fixed', top: '15%', left: '50%', transform: 'translateX(-50%)',
@@ -639,19 +677,32 @@ export default function GamePage() {
                         {/* 🏆 우승자 패 표시 영역 추가 */}
                         <div style={{ marginBottom: '25px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
                             <p style={{ color: '#aaa', fontSize: '0.9rem', marginBottom: '10px' }}>우승자 카드 구성</p>
-                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                {/* ✅ p: any 를 추가하여 타입 에러 해결 */}
-                                {(game.winnerHand || players.find((p: any) => (p.name || p.Name) === (game.winnerName || game.WinnerName))?.hand || []).map((card: any, i: number) => (
-                                    <div key={i} style={{ 
-                                        width: '50px', height: '70px', background: 'white', borderRadius: '5px', 
-                                        display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                                        color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
-                                        border: '1px solid #ddd', fontSize: '0.8rem'
-                                    }}>
-                                        <span style={{ fontWeight: 'bold' }}>{getRankText(card.rank || card.Rank)}</span>
-                                        <span style={{ fontSize: '1.2rem' }}>{(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}</span>
-                                    </div>
-                                ))}
+                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}> {/* flexWrap 추가: 카드가 많을 때 줄바꿈 허용 */}
+                                {(() => {
+                                    // 1. 우선순위에 따라 카드 배열을 찾음
+                                    // game.winnerHand -> game.WinnerHand -> 우승자 이름으로 players 배열 검색
+                                    const winnerCards = 
+                                        game.winnerHand || 
+                                        game.WinnerHand || 
+                                        players.find((p: any) => (p.name || p.Name) === (game.winnerName || game.WinnerName))?.hand ||
+                                        players.find((p: any) => (p.name || p.Name) === (game.winnerName || game.WinnerName))?.Hand || 
+                                        [];
+
+                                    return winnerCards.map((card: any, i: number) => (
+                                        <div key={i} style={{ 
+                                            width: '50px', height: '70px', background: 'white', borderRadius: '5px', 
+                                            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                                            color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
+                                            border: '1px solid #ddd', fontSize: '0.8rem',
+                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)' // 시각적 개선
+                                        }}>
+                                            <span style={{ fontWeight: 'bold' }}>{getRankText(card.rank || card.Rank)}</span>
+                                            <span style={{ fontSize: '1.2rem' }}>
+                                                {(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}
+                                            </span>
+                                        </div>
+                                    ));
+                                })()}
                             </div>
                         </div>
 

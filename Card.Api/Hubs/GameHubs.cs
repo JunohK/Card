@@ -128,6 +128,7 @@ public class GameHub : Hub
             IsStarted = room.IsStarted,   // 대기실 복귀 판단 기준
             IsFinished = room.IsFinished, // 전광판 표시 기준
             WinnerName = room.WinnerName,
+            WinnerHand = room.WinnerHand ?? new List<PlayingCard>(),
             HostPlayerId = room.HostPlayerId,
             CurrentRound = room.CurrentRound,
             MaxRounds = room.MaxRounds
@@ -260,6 +261,8 @@ public class GameHub : Hub
                 room.CurrentTurnPlayerId = player.PlayerId;
                 player.RoundTurnCount++;    // 플레이어의 턴 횟수 확인(승리 선언 위함)
 
+                await Clients.Group(roomId).SendAsync("ErrorMessage", $"🔥 {player.Name}님이 뻥을 성공했습니다!! 🔥");
+
                 // 4. 상태 전파 (A가 버린 1장 + 내가 버린 2장이 바닥에 보임)
                 await Clients.Group(roomId).SendAsync("RoomUpdated", room);
                 
@@ -284,6 +287,21 @@ public class GameHub : Hub
         if (player != null && room.IsStopDeclared)
         {
             await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 STOP을 선언했습니다! 카드를 버리면 게임이 종료됩니다.");
+            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        }
+    }
+
+    public async Task DeclarePung(string roomId)
+    {
+        // 서비스의 로직 호출
+        _roomService.DeclarePung(roomId, Context.ConnectionId);
+
+        var room = _roomService.GetRoom(roomId);
+        var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+
+        if (player != null)
+        {
+            await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 뻥을 선언했습니다!! ");
             await Clients.Group(roomId).SendAsync("RoomUpdated", room);
         }
     }
@@ -401,6 +419,7 @@ public class GameHub : Hub
 
         if (success)
         {
+            var roomState = await GetRoom(roomId);
             // 모든 인원에게 라운드 결과(전광판) 동기화
             await Clients.Group(roomId).SendAsync("RoomUpdated", room);
             await Clients.Group(roomId).SendAsync("ShowResultBoard", room);
