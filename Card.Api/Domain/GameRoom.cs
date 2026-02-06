@@ -40,6 +40,7 @@ public class GameRoom
     public string? LastWinType { get; set; } 
     public int MaxRounds { get; set; }
     public int CurrentRound { get; set; }
+    public int RoundTurnSequence { get; set; } = 0;
 
     public bool IsGameOver => IsFinished;
     // public bool IsGameOver { get; set; }

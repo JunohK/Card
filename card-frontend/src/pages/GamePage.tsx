@@ -17,6 +17,19 @@ type MyProfile = {
     minScore: number;
 }
 
+interface GameState {
+    isNaturalBagajiEnabled: boolean;
+    players: any[];
+    currentTurnPlayerId: string;
+}
+
+
+const [game, setGame] = useState<GameState>({
+    isNaturalBagajiEnabled: false,
+    players: [],
+    currentTurnPlayerId: ""
+});
+
 export default function GamePage() {
     const { roomId } = useParams<{ roomId: string }>();
     const navigate = useNavigate();
@@ -36,6 +49,8 @@ export default function GamePage() {
     });
     const [isChatMinimized, setIsChatMinimized] = useState(true); // false로 하면 최소화가 기본값
     const [hasNewMessage, setHasNewMessage] = useState(false);
+    const [winnerHand, setWinnerHand] = useState<any[]>([]);
+    const [winnerName, setWinnerName] = useState<string | null>(null);
     
     // // 메시지가 새로 추가되면 자동으로 채팅창을 펼침
     // useEffect(() => {
@@ -51,6 +66,20 @@ export default function GamePage() {
             chatRef.current.scrollIntoView({ behavior: 'smooth' });
         }
     }, [messages]);
+
+    useEffect(() => {
+        connection.on("NaturalBagajiToggled", (isEnabled: boolean) => {
+            // game 상태 업데이트
+            setGame((prev: GameState) => ({
+                ...prev,
+                isNaturalBagajiEnabled: isEnabled
+            }));
+        });
+
+        return () => {
+            connection.off("NaturalBagajiToggled");
+        };
+    }, [connection]);
 
     // ✅ 에러 메시지 처리를 위한 상태 추가
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -193,7 +222,13 @@ export default function GamePage() {
                 onUpdate(data);
             });
 
-            connection.on("ShowResultBoard", onUpdate);
+            connection.on("ShowResultBoard", (data: any) => {
+                console.log("SHOW RESULT BOARD", data.WinnerHand);
+                setWinnerHand(data.WinnerHand || []);
+                setWinnerName(data.WinnerName || null);
+                setShowRoundResult(true);
+            });
+
             connection.on("HideResultBoard", onHideResultBoard);
             connection.on("GameTerminated", onGameTerminated);
             connection.on("ExitToRoom", onExitToRoom);
@@ -538,7 +573,7 @@ return (
                             </div>
                         </div>
 
-                        {/* 🎮 액션 버튼 영역 (뻥과 STOP을 가로로 배치) */}
+                        {/* 액션 버튼 영역 (뻥과 STOP을 가로로 배치) */}
                         <div style={{ display: 'flex', flexDirection: 'row', gap: '15px', alignItems: 'center' }}>
                             {/* 🔥 뻥 버튼 */}
                             <button 
@@ -557,7 +592,7 @@ return (
                                 {canPung ? "🔥 뻥!!" : "뻥"}
                             </button>
 
-                            {/* 🛑 STOP 버튼 추가 (뻥 버튼 오른쪽에 배치됨) */}
+                            {/* STOP 버튼 추가 (뻥 버튼 오른쪽에 배치됨) */}
                             <button 
                                 className={`interrupt-btn ${canStop ? 'stop-active' : ''}`} 
                                 onClick={handleStop}
@@ -577,6 +612,19 @@ return (
                                 }}
                             >
                                 {canStop ? "🛑 STOP" : "STOP"}
+                            </button>
+                            <button
+                            className="win-btn highlight"
+                            onClick={() =>
+                                connection.invoke("ToggleNaturalBagaji", roomId).then((isEnabled: boolean) => {
+                                    setGame((prev: GameState) => ({
+                                        ...prev,
+                                        isNaturalBagajiEnabled: isEnabled
+                                    }));
+                                })
+                            }
+                            >
+                            자연바가지 {game.isNaturalBagajiEnabled ? "ON" : "OFF"}
                             </button>
                         </div>
                     </div>
@@ -632,10 +680,12 @@ return (
                     <span className={`status-text ${isMyTurn || canPung ? "active-text" : ""}`} style={{ fontSize: '1.2rem', fontWeight: 'bold', marginRight: '15px', color: canPung ? '#e74c3c' : 'inherit' }}>
                         {isMyTurn ? (canDraw ? "▲ 카드를 뽑으세요" : "▼ 버릴 카드를 선택하세요") : (canPung ? "🔥 지금 바로 '뻥'이 가능합니다!" : "상대방의 턴입니다...")}
                     </span>
-                    
-                    {/* 🏆 승리 선언 버튼: 조건 충족 시에만 렌더링 */}
-                    {canDeclareWin && (
-                        <button className="win-btn highlight" onClick={() => connection.invoke("DeclareWin", roomId)}>
+                    {/* 🏆 승리 선언 버튼: 내 턴 + 선언 가능할 때만 */}
+                    {isMyTurn && canDeclareWin && (
+                        <button
+                            className="win-btn highlight"
+                            onClick={() => connection.invoke("DeclareWin", roomId)}
+                        >
                             🏆 승리 선언
                         </button>
                     )}
@@ -669,39 +719,52 @@ return (
                 </div>
             </div>
 
+            {/* 1. 라운드 결과창: showRoundResult가 true이고 게임이 완전히 끝나지 않았을 때 표시 */}
             {showRoundResult && !game.isFinished && (
                 <div className="discard-modal-overlay fade-in-2s">
                     <div className="discard-modal-content" style={{ textAlign: 'center' }}>
                         <h2 style={{ color: '#f1c40f', marginBottom: '20px' }}>ROUND RESULT</h2>
                         
-                        {/* 🏆 우승자 패 표시 영역 추가 */}
+                        {/* 🏆 우승자 패 표시 영역 (로그 포함) */}
                         <div style={{ marginBottom: '25px', padding: '15px', background: 'rgba(255,255,255,0.05)', borderRadius: '12px' }}>
                             <p style={{ color: '#aaa', fontSize: '0.9rem', marginBottom: '10px' }}>우승자 카드 구성</p>
-                            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}> {/* flexWrap 추가: 카드가 많을 때 줄바꿈 허용 */}
+                            <div style={{ 
+                                display: 'flex', 
+                                gap: '8px', 
+                                justifyContent: 'center', 
+                                flexWrap: 'wrap', 
+                                minHeight: '70px' 
+                            }}> 
                                 {(() => {
-                                    // 1. 우선순위에 따라 카드 배열을 찾음
-                                    // game.winnerHand -> game.WinnerHand -> 우승자 이름으로 players 배열 검색
-                                    const winnerCards = 
-                                        game.winnerHand || 
-                                        game.WinnerHand || 
-                                        players.find((p: any) => (p.name || p.Name) === (game.winnerName || game.WinnerName))?.hand ||
-                                        players.find((p: any) => (p.name || p.Name) === (game.winnerName || game.WinnerName))?.Hand || 
-                                        [];
+                                    const winnerCards = game.WinnerHand || game.winnerHand;
 
-                                    return winnerCards.map((card: any, i: number) => (
-                                        <div key={i} style={{ 
-                                            width: '50px', height: '70px', background: 'white', borderRadius: '5px', 
-                                            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                                            color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
-                                            border: '1px solid #ddd', fontSize: '0.8rem',
-                                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)' // 시각적 개선
-                                        }}>
-                                            <span style={{ fontWeight: 'bold' }}>{getRankText(card.rank || card.Rank)}</span>
-                                            <span style={{ fontSize: '1.2rem' }}>
-                                                {(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}
-                                            </span>
-                                        </div>
-                                    ));
+                                    if (!winnerCards || winnerCards.length === 0) {
+                                        return (
+                                            <div style={{ color: '#e74c3c' }}>
+                                                <p>승리 카드를 불러올 수 없습니다.</p>
+                                            </div>
+                                        );
+                                    }
+
+                                    return sortCards(winnerCards).map((card: any, i: number) => {
+                                        // 카드 개별 데이터 확인용 로그
+                                        if (i === 0) console.log("4. Sample Card Object:", card);
+
+                                        return (
+                                            <div key={i} style={{ 
+                                                width: '50px', height: '70px', background: 'white', borderRadius: '5px', 
+                                                display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                                                color: (card.Color || card.color) === 'Red' ? '#e74c3c' : '#2c3e50',
+                                                border: '1px solid #ddd', fontSize: '0.8rem',
+                                                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                                            }}>
+                                                <span style={{ fontWeight: 'bold' }}>{getRankText(card.Rank || card.rank)}</span>
+                                                <span style={{ fontSize: '1.2rem' }}>
+                                                    {(card.Suit || card.suit) === "Joker" ? "🃏" : (card.Suit || card.suit)}
+                                                </span>
+                                            </div>
+                                        );
+                                    });
                                 })()}
                             </div>
                         </div>
@@ -709,7 +772,7 @@ return (
                         <div style={{ marginBottom: '20px', padding: '12px', background: 'rgba(241, 196, 15, 0.1)', borderRadius: '8px', border: '1px solid #f1c40f' }}>
                             <span style={{ color: '#f1c40f', fontWeight: 'bold' }}>판정 결과: </span>
                             <span style={{ color: '#ffffff', fontSize: '1.2rem', fontWeight: 'bold', marginLeft: '8px' }}>
-                                {game.lastWinType || game.LastWinType || "족보 확인 중..."}
+                                {game.LastWinType || game.lastWinType || "족보 확인 중..."}
                             </span>
                         </div>
 
@@ -723,11 +786,11 @@ return (
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {players.map((p: any) => {
-                                        const currentScore = p.score !== undefined ? p.score : (p.Score ?? 0);
+                                    {(game.Players || game.players || []).map((p: any) => {
+                                        const currentScore = p.Score !== undefined ? p.Score : (p.score ?? 0);
                                         return (
-                                            <tr key={p.playerId || p.PlayerId} style={{ borderBottom: '1px solid #444' }}>
-                                                <td style={{ padding: '10px' }}>{p.name || p.Name}</td>
+                                            <tr key={p.PlayerId || p.playerId} style={{ borderBottom: '1px solid #444' }}>
+                                                <td style={{ padding: '10px' }}>{p.Name || p.name}</td>
                                                 <td style={{ 
                                                     padding: '10px', 
                                                     color: currentScore <= 0 ? '#2ecc71' : '#e74c3c',
@@ -736,7 +799,7 @@ return (
                                                     {currentScore > 0 ? `+${currentScore}` : currentScore}
                                                 </td>
                                                 <td style={{ padding: '10px' }}>
-                                                    {p.totalScore !== undefined ? p.totalScore : (p.TotalScore ?? 0)} 점
+                                                    {p.TotalScore !== undefined ? p.TotalScore : (p.totalScore ?? 0)} 점
                                                 </td>
                                             </tr>
                                         );
@@ -773,7 +836,7 @@ return (
 
                             {/* 🏆 최종 우승자의 카드 노출 */}
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
-                                {(game.winnerHand || []).map((card: any, i: number) => (
+                                {sortCards(game.winnerHand || []).map((card: any, i: number) => (
                                     <div key={i} style={{ 
                                         width: '60px', height: '85px', background: 'white', borderRadius: '6px', 
                                         display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',

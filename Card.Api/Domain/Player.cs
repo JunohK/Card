@@ -27,4 +27,5 @@ public class Player
     public int Score { get; set; } = 0;
     public int TotalScore { get; set; } = 0;
     public int RoundTurnCount { get; set; } = 0;
+    public bool AllowNaturalBagaji { get; set; } = true;
 }

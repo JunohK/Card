@@ -222,6 +222,20 @@ public class GameHub : Hub
             var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
             if (player == null) return;
 
+            // --- [다른 플레이어의 6장 또는 3장 패 회수 로직] ---
+            foreach (var p in room.Players)
+            {
+                // 뻥을 한 본인이 아니고, 이미 카드를 뽑아 패가 6장 혹은 3장인 플레이어를 찾음
+                if (p.PlayerId != player.PlayerId && (p.Hand.Count == 6 || p.Hand.Count == 3))
+                {
+                    // 마지막으로 뽑은 카드를 패에서 제거
+                    var lastDrawnCard = p.Hand.Last();
+                    p.Hand.RemoveAt(p.Hand.Count - 1);
+                    // 제거한 카드를 덱의 맨 위로 다시 삽입
+                    room.Deck.Insert(0, lastDrawnCard);
+                }
+            }
+
             // --- 수정된 부분: 숫자 카드 우선순위 로직 ---
             // 1-1. 내 패에서 상대가 버린 카드와 같은 숫자의 인덱스들을 먼저 찾음
             var sameRankIndexes = player.Hand
@@ -412,23 +426,49 @@ public class GameHub : Hub
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
 
-        var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+        var player = room.Players
+            .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
         if (player == null) return;
 
-        bool success = _roomService.DeclareWin(room, player, WinReason.ManualDeclare);
+        // ✅ 1. 먼저 선언 가능 여부 검사
+        if (!_roomService.CanDeclareWin(room, player))
+        {
+            await Clients.Caller.SendAsync(
+                "ErrorMessage",
+                "아직 승리 선언을 할 수 없습니다."
+            );
+            return;
+        }
 
-        if (success)
+        // ✅ 2. 그 다음 실제 승리 처리
+        bool success = _roomService.DeclareWin(
+            room,
+            player,
+            WinReason.ManualDeclare
+        );
+
+        if (!success)
         {
-            var roomState = await GetRoom(roomId);
-            // 모든 인원에게 라운드 결과(전광판) 동기화
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-            await Clients.Group(roomId).SendAsync("ShowResultBoard", room);
+            await Clients.Caller.SendAsync(
+                "ErrorMessage",
+                "조건에 맞지 않습니다."
+            );
+            return;
         }
-        else
-        {
-            var check = _roomService.CheckWinCondition(player.Hand);
-            await Clients.Caller.SendAsync("ErrorMessage", $"조건에 맞지 않습니다.");
-        }
+
+        // ✅ 3. 결과 전파
+        await Clients.Group(roomId).SendAsync(
+            "ShowResultBoard",
+            new
+            {
+                WinnerPlayerId = room.WinnerPlayerId,
+                WinnerName = room.WinnerName,
+                WinnerHand = room.WinnerHand,
+                WinType = room.LastWinType
+            }
+        );
+
+        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
     }
 
     public async Task RequestNextRound(string roomId)
@@ -462,6 +502,19 @@ public class GameHub : Hub
         {
             await Clients.Caller.SendAsync("ErrorMessage", "라운드 전환 중 오류: " + ex.Message);
         }
+    }
+
+    private bool CanDeclareWin(GameRoom room, Player player)
+    {
+        if (room.IsFinished || room.IsRoundEnded)
+            return false;
+
+        // 내 턴인지
+        if (room.CurrentTurnPlayerId != player.PlayerId)
+            return false;
+
+        // ❗ 누군가의 2번째 턴 시작 조건
+        return player.RoundTurnCount >= 2;
     }
     
     // 기권
@@ -569,5 +622,26 @@ public class GameHub : Hub
         
         // 유저 스탯이 갱신되었음을 클라이언트에 알림
         await Clients.Group(roomId).SendAsync("UpdateUserStats");
+    }
+
+    public async Task ToggleNaturalBagaji(string roomId)
+    {
+        var room = _roomService.GetRoom(roomId);
+        if (room == null) return;
+
+        var player = room.Players
+            .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+        if (player == null) return;
+
+        player.AllowNaturalBagaji = !player.AllowNaturalBagaji;
+
+        // 본인 UI만 갱신
+        await Clients.Caller.SendAsync(
+            "NaturalBagajiToggled",
+            player.AllowNaturalBagaji
+        );
+
+        // 룸 상태 동기화 필요하면
+        // await Clients.Group(roomId).SendAsync("RoomUpdated", room);
     }
 }

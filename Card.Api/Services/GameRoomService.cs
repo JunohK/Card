@@ -116,17 +116,21 @@ public class GameRoomService
         if (!_rooms.TryGetValue(roomId, out var room)) return;
         if (room.IsStarted) return;
 
+        foreach (var p in room.Players)
+            p.RoundTurnCount = 0;
+
         room.MaxRounds = maxRounds;
         room.CurrentRound = 1;
         room.IsStarted = true;
         room.IsFinished = false;
         room.WinnerHand.Clear(); // 이전 우승자의 카드리스트 비움
+        room.RoundTurnSequence = 0;
 
         // STOP 관련 상태 초기화
         room.IsStopDeclared = false;
         room.StopCallerId = "";
         room.WinnerName = null;
-        room.WinnerPlayerId = null;
+        room.WinnerPlayerId = string.Empty;
 
         // 전체 게임 시작 시에만 누적 점수 0으로 리셋
         foreach (var p in room.Players) {
@@ -197,8 +201,13 @@ public class GameRoomService
     public void StartTurn(GameRoom room)
     {
         if (room.IsFinished) return;
-        var currentPlayer = room.Players.FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
-        if (currentPlayer != null) DrawCard(room, currentPlayer);
+
+        var currentPlayer = room.Players
+            .FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
+
+        if (currentPlayer == null) return;
+
+        DrawCard(room, currentPlayer);
     }
 
     private void DrawCard(GameRoom room, Player player)
@@ -255,19 +264,44 @@ public class GameRoomService
     // 수정된 승리 선언 (족보 검증 포함)
     public bool DeclareWin(GameRoom room, Player winner, WinReason reason)
     {
-        // 이미 종료 처리 중이면 중복 실행 방지
         if (room == null || room.IsFinished || room.IsRoundEnded) return false;
 
-        var check = CheckWinCondition(winner.Hand);
+        // 🔴 [가장 중요] 그 어떤 로직도 타기 전에 현재 패를 완전히 새로운 리스트로 복제합니다.
+        // .ToList()만으로는 부족할 수 있으니 새 객체를 생성하여 복사하십시오.
+        var savedHand = winner.Hand.Select(c => new PlayingCard { 
+            Suit = c.Suit, 
+            Rank = c.Rank, 
+            Color = c.Color,
+            Type = c.Type,
+            Id = c.Id
+        }).ToList();
+
+        // 2️⃣ 족보 판정용 패 (게임 상태와 완전히 분리)
+        var handForCheck = winner.Hand
+            .Select(c => new PlayingCard
+            {
+                Suit = c.Suit,
+                Rank = c.Rank,
+                Color = c.Color,
+                Type = c.Type,
+                Id = c.Id
+            })
+            .ToList();
+
+        // 🔴 절대 winner.Hand를 넘기지 말 것
+        var check = CheckWinCondition(handForCheck);
         if (reason == WinReason.ManualDeclare && !check.isValid) return false;
 
-        // 1. 라운드 종료 상태로 변경 (클라이언트가 이 값을 보고 결과창을 띄워야 함)
+        // 2. 라운드 종료 정보 설정
         room.IsRoundEnded = true; 
         room.WinnerPlayerId = winner.PlayerId;
         room.WinnerName = winner.Name;
         room.LastWinType = check.winType;
 
-        // 2. 점수 계산 및 누계 반영
+        // 🔴 [수정] 서버에서 클라이언트로 보낼 최종 패 정보에 복제본을 할당`
+        room.WinnerHand = savedHand;
+
+        // 3. 점수 계산
         foreach (var player in room.Players)
         {
             int roundScore = (player.PlayerId == winner.PlayerId) 
@@ -278,7 +312,7 @@ public class GameRoomService
             player.TotalScore += roundScore;
         }
 
-        // 3. 전체 게임 종료 체크 (MaxRounds 도달 시)
+        // 4. 전체 게임 종료 체크
         if (room.CurrentRound >= room.MaxRounds)
         {
             room.IsFinished = true;
@@ -379,26 +413,26 @@ public class GameRoomService
         CheckAndEndFullGame(room);
     }
 
-    private void StartNewRound(GameRoom room)
-    {
-        // 덱 다시 생성 및 셔플
-        room.Deck = CreateNewDeck(); 
-        room.DiscardPile.Clear();
-        room.IsRoundEnded = false;
+    // private void StartNewRound(GameRoom room)
+    // {
+    //     // 덱 다시 생성 및 셔플
+    //     room.Deck = CreateNewDeck(); 
+    //     room.DiscardPile.Clear();
+    //     room.IsRoundEnded = false;
 
-        // 플레이어들에게 카드 분배 (예: 2장씩)
-        foreach (var player in room.Players)
-        {
-            player.Hand.AddRange(room.Deck.Take(2));
-            room.Deck.RemoveRange(0, 2);
-        }
+    //     // 플레이어들에게 카드 분배 (예: 2장씩)
+    //     foreach (var player in room.Players)
+    //     {
+    //         player.Hand.AddRange(room.Deck.Take(2));
+    //         room.Deck.RemoveRange(0, 2);
+    //     }
         
-        // 첫 번째 플레이어 결정 및 카드 1장 더 주기
-        var firstPlayer = room.Players[0];
-        firstPlayer.Hand.Add(room.Deck[0]);
-        room.Deck.RemoveAt(0);
-        room.CurrentTurnPlayerId = firstPlayer.PlayerId;
-    }
+    //     // 첫 번째 플레이어 결정 및 카드 1장 더 주기
+    //     var firstPlayer = room.Players[0];
+    //     firstPlayer.Hand.Add(room.Deck[0]);
+    //     room.Deck.RemoveAt(0);
+    //     room.CurrentTurnPlayerId = firstPlayer.PlayerId;
+    // }
 
     // 다음 라운드로 완전히 넘어가는 로직
     public void StartNextRound(GameRoom room)
@@ -412,6 +446,7 @@ public class GameRoomService
         room.CurrentRound++;      
         room.IsRoundEnded = false; 
         room.IsFinished = false;     // 혹시 true였다면 리셋
+        room.RoundTurnSequence = 0;
         
         // ✅ [가장 중요] STOP 선언 상태 초기화
         room.IsStopDeclared = false;
@@ -420,7 +455,7 @@ public class GameRoomService
         // ✅ 우승 데이터 초기화
         room.WinnerPlayerId = string.Empty;
         room.WinnerName = null;
-        room.WinnerHand.Clear(); // 이전 판 우승자 카드 리스트 비움
+        // room.WinnerHand.Clear(); // 이전 판 우승자 카드 리스트 비움
         
         room.LastDiscardedCard = null;
         room.DiscardPile.Clear();
@@ -487,7 +522,7 @@ public class GameRoomService
         
         // LowSum (조커 = 1점)
         int LowSum = sortedRanks.Sum() + (jokerCount * 1);
-        if (LowSum <= 10) return ( true, "10-", -100);
+        if (LowSum <= 10) return ( true, "100-", -100);
 
         // 4장 + 2장 구성 (보상 -100점)
         if (CanMakeGroups(hand, new[] { 4, 2 })) return (true, "4 + 2", -100);
@@ -660,6 +695,10 @@ public class GameRoomService
             // 자연바가지
             else if(hand.Count == 5)
             {
+                // 자연바가지 비활성화 버튼
+                if (!player.AllowNaturalBagaji)
+                    continue;
+
                 // 조커 제외 일반 카드
                 var normalCards = hand.Where(c => c.Rank != "Joker" && c.Rank != "JK" && c.Rank != "JOKER").ToList();
 
@@ -983,13 +1022,26 @@ public class GameRoomService
     public void EndTurn(GameRoom room)
     {
         if (room.IsFinished) return;
-        var currentIndex = room.Players.FindIndex(p => p.PlayerId == room.CurrentTurnPlayerId);
+
+        var currentPlayer = room.Players
+            .FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
+
+        if (currentPlayer == null) return;
+
+        // ✅ 턴을 '완료'했으므로 여기서 증가
+        currentPlayer.RoundTurnCount++;
+
+        var currentIndex = room.Players
+            .FindIndex(p => p.PlayerId == room.CurrentTurnPlayerId);
+
         if (currentIndex == -1) currentIndex = 0;
 
         var nextIndex = (currentIndex + 1) % room.Players.Count;
         room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
+
         StartTurn(room);
     }
+
 
     public void DiscardCards(GameRoom room, Player player, List<int> handIndexes)
     {
@@ -1233,5 +1285,14 @@ public class GameRoomService
                 player.Wins += 1; // 승자 승리 횟수 증가
             }
         }
+    }
+
+    public bool CanDeclareWin(GameRoom room, Player player)
+    {
+        if (room.CurrentTurnPlayerId != player.PlayerId)
+            return false;
+
+        // ✅ "이 사람이 턴을 한 번이라도 끝냈는가"
+        return player.RoundTurnCount >= 1;
     }
 }
