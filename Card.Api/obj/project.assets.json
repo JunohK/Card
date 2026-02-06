@@ -3768,19 +3768,19 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\김준오\\.nuget\\packages\\": {}
+    "C:\\Users\\wnsdh\\.nuget\\packages\\": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",
+      "projectUniqueName": "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj",
       "projectName": "Card.Api",
-      "projectPath": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",
-      "packagesPath": "C:\\Users\\김준오\\.nuget\\packages\\",
-      "outputPath": "C:\\personalProject\\card\\Card.Api\\obj\\",
+      "projectPath": "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj",
+      "packagesPath": "C:\\Users\\wnsdh\\.nuget\\packages\\",
+      "outputPath": "C:\\personalProject\\Card\\Card.Api\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
-        "C:\\Users\\김준오\\AppData\\Roaming\\NuGet\\NuGet.Config"
+        "C:\\Users\\wnsdh\\AppData\\Roaming\\NuGet\\NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net10.0"
@@ -3856,7 +3856,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.100/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.AspNetCore": "(,10.0.32767]",
           "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",

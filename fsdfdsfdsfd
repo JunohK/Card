@@ -1,0 +1,246 @@
+[1mdiff --git a/Card b/Card[m
+[1mindex 324b360..ca7d992 160000[m
+[1m--- a/Card[m
+[1m+++ b/Card[m
+[36m@@ -1 +1 @@[m
+[31m-Subproject commit 324b360f1c0f8a18f825c726702e462d22871168[m
+[32m+[m[32mSubproject commit ca7d992be817b92e653d057a26472d31fb538a3c[m
+[1mdiff --git a/Card.Api/bin/Debug/net10.0/Card.Api.dll b/Card.Api/bin/Debug/net10.0/Card.Api.dll[m
+[1mindex e458269..b73fcd8 100644[m
+Binary files a/Card.Api/bin/Debug/net10.0/Card.Api.dll and b/Card.Api/bin/Debug/net10.0/Card.Api.dll differ
+[1mdiff --git a/Card.Api/bin/Debug/net10.0/Card.Api.exe b/Card.Api/bin/Debug/net10.0/Card.Api.exe[m
+[1mindex 6140852..0db55c6 100644[m
+Binary files a/Card.Api/bin/Debug/net10.0/Card.Api.exe and b/Card.Api/bin/Debug/net10.0/Card.Api.exe differ
+[1mdiff --git a/Card.Api/bin/Debug/net10.0/Card.Api.pdb b/Card.Api/bin/Debug/net10.0/Card.Api.pdb[m
+[1mindex a1394bb..cc6cf8e 100644[m
+Binary files a/Card.Api/bin/Debug/net10.0/Card.Api.pdb and b/Card.Api/bin/Debug/net10.0/Card.Api.pdb differ
+[1mdiff --git a/Card.Api/cardgame.db-shm b/Card.Api/cardgame.db-shm[m
+[1mindex 6fed45d..b71f1c6 100644[m
+Binary files a/Card.Api/cardgame.db-shm and b/Card.Api/cardgame.db-shm differ
+[1mdiff --git a/Card.Api/obj/Card.Api.csproj.nuget.dgspec.json b/Card.Api/obj/Card.Api.csproj.nuget.dgspec.json[m
+[1mindex 84a6d30..2d92084 100644[m
+[1m--- a/Card.Api/obj/Card.Api.csproj.nuget.dgspec.json[m
+[1m+++ b/Card.Api/obj/Card.Api.csproj.nuget.dgspec.json[m
+[36m@@ -1,20 +1,20 @@[m
+ {[m
+   "format": 1,[m
+   "restore": {[m
+[31m-    "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj": {}[m
+[32m+[m[32m    "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj": {}[m
+   },[m
+   "projects": {[m
+[31m-    "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj": {[m
+[32m+[m[32m    "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj": {[m
+       "version": "1.0.0",[m
+       "restore": {[m
+[31m-        "projectUniqueName": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",[m
+[32m+[m[32m        "projectUniqueName": "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj",[m
+         "projectName": "Card.Api",[m
+[31m-        "projectPath": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",[m
+[31m-        "packagesPath": "C:\\Users\\김준오\\.nuget\\packages\\",[m
+[31m-        "outputPath": "C:\\personalProject\\card\\Card.Api\\obj\\",[m
+[32m+[m[32m        "projectPath": "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj",[m
+[32m+[m[32m        "packagesPath": "C:\\Users\\wnsdh\\.nuget\\packages\\",[m
+[32m+[m[32m        "outputPath": "C:\\personalProject\\Card\\Card.Api\\obj\\",[m
+         "projectStyle": "PackageReference",[m
+         "configFilePaths": [[m
+[31m-          "C:\\Users\\김준오\\AppData\\Roaming\\NuGet\\NuGet.Config"[m
+[32m+[m[32m          "C:\\Users\\wnsdh\\AppData\\Roaming\\NuGet\\NuGet.Config"[m
+         ],[m
+         "originalTargetFrameworks": [[m
+           "net10.0"[m
+[36m@@ -90,7 +90,7 @@[m
+               "privateAssets": "all"[m
+             }[m
+           },[m
+[31m-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.100/PortableRuntimeIdentifierGraph.json",[m
+[32m+[m[32m          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json",[m
+           "packagesToPrune": {[m
+             "Microsoft.AspNetCore": "(,10.0.32767]",[m
+             "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",[m
+[1mdiff --git a/Card.Api/obj/Card.Api.csproj.nuget.g.props b/Card.Api/obj/Card.Api.csproj.nuget.g.props[m
+[1mindex 70b10fa..095ab25 100644[m
+[1m--- a/Card.Api/obj/Card.Api.csproj.nuget.g.props[m
+[1m+++ b/Card.Api/obj/Card.Api.csproj.nuget.g.props[m
+[36m@@ -5,12 +5,12 @@[m
+     <RestoreTool Condition=" '$(RestoreTool)' == '' ">NuGet</RestoreTool>[m
+     <ProjectAssetsFile Condition=" '$(ProjectAssetsFile)' == '' ">$(MSBuildThisFileDirectory)project.assets.json</ProjectAssetsFile>[m
+     <NuGetPackageRoot Condition=" '$(NuGetPackageRoot)' == '' ">$(UserProfile)\.nuget\packages\</NuGetPackageRoot>[m
+[31m-    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">C:\Users\김준오\.nuget\packages\</NuGetPackageFolders>[m
+[32m+[m[32m    <NuGetPackageFolders Condition=" '$(NuGetPackageFolders)' == '' ">C:\Users\wnsdh\.nuget\packages\</NuGetPackageFolders>[m
+     <NuGetProjectStyle Condition=" '$(NuGetProjectStyle)' == '' ">PackageReference</NuGetProjectStyle>[m
+     <NuGetToolVersion Condition=" '$(NuGetToolVersion)' == '' ">7.0.0</NuGetToolVersion>[m
+   </PropertyGroup>[m
+   <ItemGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">[m
+[31m-    <SourceRoot Include="C:\Users\김준오\.nuget\packages\" />[m
+[32m+[m[32m    <SourceRoot Include="C:\Users\wnsdh\.nuget\packages\" />[m
+   </ItemGroup>[m
+   <ImportGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">[m
+     <Import Project="$(NuGetPackageRoot)microsoft.extensions.apidescription.server\10.0.0\build\Microsoft.Extensions.ApiDescription.Server.props" Condition="Exists('$(NuGetPackageRoot)microsoft.extensions.apidescription.server\10.0.0\build\Microsoft.Extensions.ApiDescription.Server.props')" />[m
+[36m@@ -20,8 +20,8 @@[m
+     <Import Project="$(NuGetPackageRoot)microsoft.entityframeworkcore.design\10.0.1\build\net10.0\Microsoft.EntityFrameworkCore.Design.props" Condition="Exists('$(NuGetPackageRoot)microsoft.entityframeworkcore.design\10.0.1\build\net10.0\Microsoft.EntityFrameworkCore.Design.props')" />[m
+   </ImportGroup>[m
+   <PropertyGroup Condition=" '$(ExcludeRestorePackageImports)' != 'true' ">[m
+[31m-    <PkgMicrosoft_Extensions_ApiDescription_Server Condition=" '$(PkgMicrosoft_Extensions_ApiDescription_Server)' == '' ">C:\Users\김준오\.nuget\packages\microsoft.extensions.apidescription.server\10.0.0</PkgMicrosoft_Extensions_ApiDescription_Server>[m
+[31m-    <PkgMicrosoft_CodeAnalysis_Analyzers Condition=" '$(PkgMicrosoft_CodeAnalysis_Analyzers)' == '' ">C:\Users\김준오\.nuget\packages\microsoft.codeanalysis.analyzers\3.11.0</PkgMicrosoft_CodeAnalysis_Analyzers>[m
+[31m-    <PkgMicrosoft_EntityFrameworkCore_Tools Condition=" '$(PkgMicrosoft_EntityFrameworkCore_Tools)' == '' ">C:\Users\김준오\.nuget\packages\microsoft.entityframeworkcore.tools\10.0.1</PkgMicrosoft_EntityFrameworkCore_Tools>[m
+[32m+[m[32m    <PkgMicrosoft_Extensions_ApiDescription_Server Condition=" '$(PkgMicrosoft_Extensions_ApiDescription_Server)' == '' ">C:\Users\wnsdh\.nuget\packages\microsoft.extensions.apidescription.server\10.0.0</PkgMicrosoft_Extensions_ApiDescription_Server>[m
+[32m+[m[32m    <PkgMicrosoft_CodeAnalysis_Analyzers Condition=" '$(PkgMicrosoft_CodeAnalysis_Analyzers)' == '' ">C:\Users\wnsdh\.nuget\packages\microsoft.codeanalysis.analyzers\3.11.0</PkgMicrosoft_CodeAnalysis_Analyzers>[m
+[32m+[m[32m    <PkgMicrosoft_EntityFrameworkCore_Tools Condition=" '$(PkgMicrosoft_EntityFrameworkCore_Tools)' == '' ">C:\Users\wnsdh\.nuget\packages\microsoft.entityframeworkcore.tools\10.0.1</PkgMicrosoft_EntityFrameworkCore_Tools>[m
+   </PropertyGroup>[m
+ </Project>[m
+\ No newline at end of file[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfo.cs b/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfo.cs[m
+[1mindex c6d9543..2da89b7 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfo.cs[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfo.cs[m
+[36m@@ -13,7 +13,7 @@[m [musing System.Reflection;[m
+ [assembly: System.Reflection.AssemblyCompanyAttribute("Card.Api")][m
+ [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")][m
+ [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")][m
+[31m-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+aeccd0ea2137351a033e1d69abc4c6307a288657")][m
+[32m+[m[32m[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+4640f841af1e73ad5bb1c976ca79274667b24c24")][m
+ [assembly: System.Reflection.AssemblyProductAttribute("Card.Api")][m
+ [assembly: System.Reflection.AssemblyTitleAttribute("Card.Api")][m
+ [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")][m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfoInputs.cache b/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfoInputs.cache[m
+[1mindex 2670de4..d0d42e6 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfoInputs.cache[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/Card.Api.AssemblyInfoInputs.cache[m
+[36m@@ -1 +1 @@[m
+[31m-d87c966e4cf861f43fb4d86b2e61fab40c394149b0893145e0c46837cbd174e6[m
+[32m+[m[32m4429a9e2cb30cfbefc104f555c146b33e1d0b92dab7417d75e71ad0af95f7386[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.GeneratedMSBuildEditorConfig.editorconfig b/Card.Api/obj/Debug/net10.0/Card.Api.GeneratedMSBuildEditorConfig.editorconfig[m
+[1mindex f5ec966..ea7ef64 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/Card.Api.GeneratedMSBuildEditorConfig.editorconfig[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/Card.Api.GeneratedMSBuildEditorConfig.editorconfig[m
+[36m@@ -19,13 +19,13 @@[m [mbuild_property.TargetFrameworkIdentifier = .NETCoreApp[m
+ build_property.TargetFrameworkVersion = v10.0[m
+ build_property.RootNamespace = Card.Api[m
+ build_property.RootNamespace = Card.Api[m
+[31m-build_property.ProjectDir = C:\personalProject\card\Card.Api\[m
+[32m+[m[32mbuild_property.ProjectDir = C:\personalProject\Card\Card.Api\[m
+ build_property.EnableComHosting = [m
+ build_property.EnableGeneratedComInterfaceComImportInterop = [m
+ build_property.RazorLangVersion = 9.0[m
+ build_property.SupportLocalizedComponentNames = [m
+ build_property.GenerateRazorMetadataSourceChecksumAttributes = [m
+[31m-build_property.MSBuildProjectDirectory = C:\personalProject\card\Card.Api[m
+[32m+[m[32mbuild_property.MSBuildProjectDirectory = C:\personalProject\Card\Card.Api[m
+ build_property._RazorSourceGeneratorDebug = [m
+ build_property.EffectiveAnalysisLevelStyle = 10.0[m
+ build_property.EnableCodeStyleSeverity = [m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.assets.cache b/Card.Api/obj/Debug/net10.0/Card.Api.assets.cache[m
+[1mindex bf4198e..7d4684b 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/Card.Api.assets.cache and b/Card.Api/obj/Debug/net10.0/Card.Api.assets.cache differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.csproj.AssemblyReference.cache b/Card.Api/obj/Debug/net10.0/Card.Api.csproj.AssemblyReference.cache[m
+[1mindex 16ff083..f79f96e 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/Card.Api.csproj.AssemblyReference.cache and b/Card.Api/obj/Debug/net10.0/Card.Api.csproj.AssemblyReference.cache differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.csproj.CoreCompileInputs.cache b/Card.Api/obj/Debug/net10.0/Card.Api.csproj.CoreCompileInputs.cache[m
+[1mindex b32963d..9d3bbbd 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/Card.Api.csproj.CoreCompileInputs.cache[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/Card.Api.csproj.CoreCompileInputs.cache[m
+[36m@@ -1 +1 @@[m
+[31m-780858acda24061dd56bb30503b8d88be3d676709a4fcd17276f7cdfee61969c[m
+[32m+[m[32mdfcb13e6c63b2368c05440204566bdc02692e4605fdc39cd5ce3780a06999053[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.dll b/Card.Api/obj/Debug/net10.0/Card.Api.dll[m
+[1mindex e458269..b73fcd8 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/Card.Api.dll and b/Card.Api/obj/Debug/net10.0/Card.Api.dll differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.genruntimeconfig.cache b/Card.Api/obj/Debug/net10.0/Card.Api.genruntimeconfig.cache[m
+[1mindex c87c0c2..7237ab2 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/Card.Api.genruntimeconfig.cache[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/Card.Api.genruntimeconfig.cache[m
+[36m@@ -1 +1 @@[m
+[31m-ae15b2a3fc55ea35c682c2e91ad82db7b8fcd2b64cd59ae8d0bf91bb38dcd765[m
+[32m+[m[32mf21da8218c01356f5d4ba5cba82e588838c2988568bd6431fc2307a858ffb59b[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.pdb b/Card.Api/obj/Debug/net10.0/Card.Api.pdb[m
+[1mindex a1394bb..cc6cf8e 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/Card.Api.pdb and b/Card.Api/obj/Debug/net10.0/Card.Api.pdb differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/Card.Api.sourcelink.json b/Card.Api/obj/Debug/net10.0/Card.Api.sourcelink.json[m
+[1mindex 3c1569a..63cba14 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/Card.Api.sourcelink.json[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/Card.Api.sourcelink.json[m
+[36m@@ -1 +1 @@[m
+[31m-{"documents":{"C:\\personalProject\\card\\*":"https://raw.githubusercontent.com/JunohK/Card/aeccd0ea2137351a033e1d69abc4c6307a288657/*"}}[m
+\ No newline at end of file[m
+[32m+[m[32m{"documents":{"C:\\personalProject\\Card\\*":"https://raw.githubusercontent.com/JunohK/Card/4640f841af1e73ad5bb1c976ca79274667b24c24/*"}}[m
+\ No newline at end of file[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/apphost.exe b/Card.Api/obj/Debug/net10.0/apphost.exe[m
+[1mindex 6140852..0db55c6 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/apphost.exe and b/Card.Api/obj/Debug/net10.0/apphost.exe differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/ref/Card.Api.dll b/Card.Api/obj/Debug/net10.0/ref/Card.Api.dll[m
+[1mindex 13ef95b..23a1d29 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/ref/Card.Api.dll and b/Card.Api/obj/Debug/net10.0/ref/Card.Api.dll differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/refint/Card.Api.dll b/Card.Api/obj/Debug/net10.0/refint/Card.Api.dll[m
+[1mindex 13ef95b..23a1d29 100644[m
+Binary files a/Card.Api/obj/Debug/net10.0/refint/Card.Api.dll and b/Card.Api/obj/Debug/net10.0/refint/Card.Api.dll differ
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/rjsmcshtml.dswa.cache.json b/Card.Api/obj/Debug/net10.0/rjsmcshtml.dswa.cache.json[m
+[1mindex 6e847ac..d73d4fb 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/rjsmcshtml.dswa.cache.json[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/rjsmcshtml.dswa.cache.json[m
+[36m@@ -1 +1 @@[m
+[31m-{"GlobalPropertiesHash":"Min5OP4tJeOc+/tZoFMHUuBiYn0s5GqP4VyciLJ8uSI=","FingerprintPatternsHash":"gq3WsqcKBUGTSNle7RKKyXRIwh7M8ccEqOqYvIzoM04=","PropertyOverridesHash":"8ZRc1sGeVrPBx4lD717BgRaQekyh78QKV9SKsdt638U=","InputHashes":["9Tq/NqmiVUwQeCjUvCubJDixhwQ/j7XYPsJyVe2dDEQ=","Ojvm8wTvM/q3AZc5Zk3JKeUk5talLyhTBT4JL3cDBHg=","rLHsKb56NwjFlTrcDatcETVggqXdMjS1W1bhbhlBaPo=","HV4PiemWZr58FuC6xACB9iXy7kXjLCoyrot0e2nyTZY=","zZp06UMYTmiFjP\u002BVS\u002BMcuekZqEdKg6uvDIhEIO\u002Bu8pc=","X0BsSJ1qISJNUUk7Qe5RVLVqQxdoFCiBrpm8J5SwJ8A="],"CachedAssets":{},"CachedCopyCandidates":{}}[m
+\ No newline at end of file[m
+[32m+[m[32m{"GlobalPropertiesHash":"czy5RtdaCWfKyv//oyXwnxYXFI2zZ4bYZGg493+bFbU=","FingerprintPatternsHash":"gq3WsqcKBUGTSNle7RKKyXRIwh7M8ccEqOqYvIzoM04=","PropertyOverridesHash":"8ZRc1sGeVrPBx4lD717BgRaQekyh78QKV9SKsdt638U=","InputHashes":["IcpZAVhVWLbTbB20w6FbFKwUaMK6q/GnlkS4L8rf\u002BQs=","MNNnEcEGP\u002BRaaHh8dYiTwg075BybMOstc\u002BBxwu7zBa4=","K8V\u002Bg0ModikQ4bISI1FiK5aESY12h5daSgGRtw5s3sA=","UdiJb5HGiqpN\u002BteJhTcZZxxnPl\u002BE2LZOLgjoOz5Uovk=","IG8gfcsP67yHgUON7R\u002BNZwu12cXklIR/lyyy0XbKUrs=","JfF3hcJz5EUcjknLmTsIU1zqGWIq1gW9yTnQ0XN4J9I=","U/3R\u002ByYMgXayyqBIk/5\u002BjC6D3N2dUeLzwhaxKTsaKXI=","zbemX7xN7wXnRrLCcXfY2fWbpLjoUxeiI66bT5ENA/g="],"CachedAssets":{},"CachedCopyCandidates":{}}[m
+\ No newline at end of file[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/rjsmrazor.dswa.cache.json b/Card.Api/obj/Debug/net10.0/rjsmrazor.dswa.cache.json[m
+[1mindex 1e83239..f69a4e8 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/rjsmrazor.dswa.cache.json[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/rjsmrazor.dswa.cache.json[m
+[36m@@ -1 +1 @@[m
+[31m-{"GlobalPropertiesHash":"AVgFmGcxlxalcRQsFjAjfMRdutR7GdEb3/gNO1vxV9k=","FingerprintPatternsHash":"gq3WsqcKBUGTSNle7RKKyXRIwh7M8ccEqOqYvIzoM04=","PropertyOverridesHash":"8ZRc1sGeVrPBx4lD717BgRaQekyh78QKV9SKsdt638U=","InputHashes":["9Tq/NqmiVUwQeCjUvCubJDixhwQ/j7XYPsJyVe2dDEQ=","Ojvm8wTvM/q3AZc5Zk3JKeUk5talLyhTBT4JL3cDBHg=","rLHsKb56NwjFlTrcDatcETVggqXdMjS1W1bhbhlBaPo=","HV4PiemWZr58FuC6xACB9iXy7kXjLCoyrot0e2nyTZY=","zZp06UMYTmiFjP\u002BVS\u002BMcuekZqEdKg6uvDIhEIO\u002Bu8pc=","X0BsSJ1qISJNUUk7Qe5RVLVqQxdoFCiBrpm8J5SwJ8A="],"CachedAssets":{},"CachedCopyCandidates":{}}[m
+\ No newline at end of file[m
+[32m+[m[32m{"GlobalPropertiesHash":"5Vt4ikKrLUmghDvlrqyi/lEsQVVsljwQ8oRi8IraJxA=","FingerprintPatternsHash":"gq3WsqcKBUGTSNle7RKKyXRIwh7M8ccEqOqYvIzoM04=","PropertyOverridesHash":"8ZRc1sGeVrPBx4lD717BgRaQekyh78QKV9SKsdt638U=","InputHashes":["IcpZAVhVWLbTbB20w6FbFKwUaMK6q/GnlkS4L8rf\u002BQs=","MNNnEcEGP\u002BRaaHh8dYiTwg075BybMOstc\u002BBxwu7zBa4=","K8V\u002Bg0ModikQ4bISI1FiK5aESY12h5daSgGRtw5s3sA=","UdiJb5HGiqpN\u002BteJhTcZZxxnPl\u002BE2LZOLgjoOz5Uovk=","IG8gfcsP67yHgUON7R\u002BNZwu12cXklIR/lyyy0XbKUrs=","JfF3hcJz5EUcjknLmTsIU1zqGWIq1gW9yTnQ0XN4J9I=","U/3R\u002ByYMgXayyqBIk/5\u002BjC6D3N2dUeLzwhaxKTsaKXI=","zbemX7xN7wXnRrLCcXfY2fWbpLjoUxeiI66bT5ENA/g="],"CachedAssets":{},"CachedCopyCandidates":{}}[m
+\ No newline at end of file[m
+[1mdiff --git a/Card.Api/obj/Debug/net10.0/rpswa.dswa.cache.json b/Card.Api/obj/Debug/net10.0/rpswa.dswa.cache.json[m
+[1mindex 6cf0a3e..51cb488 100644[m
+[1m--- a/Card.Api/obj/Debug/net10.0/rpswa.dswa.cache.json[m
+[1m+++ b/Card.Api/obj/Debug/net10.0/rpswa.dswa.cache.json[m
+[36m@@ -1 +1 @@[m
+[31m-{"GlobalPropertiesHash":"GnFzbylzwJtUIOFOuq0x+XH6hBsRTneG0Tsc3yHQm3k=","FingerprintPatternsHash":"gq3WsqcKBUGTSNle7RKKyXRIwh7M8ccEqOqYvIzoM04=","PropertyOverridesHash":"8ZRc1sGeVrPBx4lD717BgRaQekyh78QKV9SKsdt638U=","InputHashes":["9Tq/NqmiVUwQeCjUvCubJDixhwQ/j7XYPsJyVe2dDEQ=","Ojvm8wTvM/q3AZc5Zk3JKeUk5talLyhTBT4JL3cDBHg="],"CachedAssets":{},"CachedCopyCandidates":{}}[m
+\ No newline at end of file[m
+[32m+[m[32m{"GlobalPropertiesHash":"CGkbvGOgsz9UxdpQWuQjlT7jP+6QNyaONtZiBxoIOrw=","FingerprintPatternsHash":"gq3WsqcKBUGTSNle7RKKyXRIwh7M8ccEqOqYvIzoM04=","PropertyOverridesHash":"8ZRc1sGeVrPBx4lD717BgRaQekyh78QKV9SKsdt638U=","InputHashes":["IcpZAVhVWLbTbB20w6FbFKwUaMK6q/GnlkS4L8rf\u002BQs=","MNNnEcEGP\u002BRaaHh8dYiTwg075BybMOstc\u002BBxwu7zBa4="],"CachedAssets":{},"CachedCopyCandidates":{}}[m
+\ No newline at end of file[m
+[1mdiff --git a/Card.Api/obj/project.assets.json b/Card.Api/obj/project.assets.json[m
+[1mindex 5a28b27..255959c 100644[m
+[1m--- a/Card.Api/obj/project.assets.json[m
+[1m+++ b/Card.Api/obj/project.assets.json[m
+[36m@@ -3768,19 +3768,19 @@[m
+     ][m
+   },[m
+   "packageFolders": {[m
+[31m-    "C:\\Users\\김준오\\.nuget\\packages\\": {}[m
+[32m+[m[32m    "C:\\Users\\wnsdh\\.nuget\\packages\\": {}[m
+   },[m
+   "project": {[m
+     "version": "1.0.0",[m
+     "restore": {[m
+[31m-      "projectUniqueName": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",[m
+[32m+[m[32m      "projectUniqueName": "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj",[m
+       "projectName": "Card.Api",[m
+[31m-      "projectPath": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",[m
+[31m-      "packagesPath": "C:\\Users\\김준오\\.nuget\\packages\\",[m
+[31m-      "outputPath": "C:\\personalProject\\card\\Card.Api\\obj\\",[m
+[32m+[m[32m      "projectPath": "C:\\personalProject\\Card\\Card.Api\\Card.Api.csproj",[m
+[32m+[m[32m      "packagesPath": "C:\\Users\\wnsdh\\.nuget\\packages\\",[m
+[32m+[m[32m      "outputPath": "C:\\personalProject\\Card\\Card.Api\\obj\\",[m
+       "projectStyle": "PackageReference",[m
+       "configFilePaths": [[m
+[31m-        "C:\\Users\\김준오\\AppData\\Roaming\\NuGet\\NuGet.Config"[m
+[32m+[m[32m        "C:\\Users\\wnsdh\\AppData\\Roaming\\NuGet\\NuGet.Config"[m
+       ],[m
+       "originalTargetFrameworks": [[m
+         "net10.0"[m
+[36m@@ -3856,7 +3856,7 @@[m
+             "privateAssets": "all"[m
+           }[m
+         },[m
+[31m-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.100/PortableRuntimeIdentifierGraph.json",[m
+[32m+[m[32m        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.101/PortableRuntimeIdentifierGraph.json",[m
+         "packagesToPrune": {[m
+           "Microsoft.AspNetCore": "(,10.0.32767]",[m
+           "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",[m
+[1mdiff --git a/Card.Api/obj/project.nuget.cache b/Card.Api/obj/project.nuget.cache[m
+[1mindex 7faf84d..9173267 100644[m
+[1m--- a/Card.Api/obj/project.nuget.cache[m
+[1m+++ b/Card.Api/obj/proje
