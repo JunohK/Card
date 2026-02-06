@@ -24,12 +24,6 @@ interface GameState {
 }
 
 
-const [game, setGame] = useState<GameState>({
-    isNaturalBagajiEnabled: false,
-    players: [],
-    currentTurnPlayerId: ""
-});
-
 export default function GamePage() {
     const { roomId } = useParams<{ roomId: string }>();
     const navigate = useNavigate();
