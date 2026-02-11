@@ -15,9 +15,4 @@ public class GameDbContext : DbContext
     public DbSet<Deck> Decks => Set<Deck>();
     public DbSet<Match> Matches => Set<Match>();
     public DbSet<MatchPlayer> MatchPlayers => Set<MatchPlayer>();
-
-    protected override void OnConfiguring(DbContextOptionsBuilder options)
-    {
-        options.UseSqlite("Data Source=cardgame.db");
-    }
 }

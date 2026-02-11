@@ -71,7 +71,16 @@ builder.Services.AddCors(options =>
 });
 
 // DB / SignalR / Services 동일
-builder.Services.AddDbContext<GameDbContext>(options => options.UseSqlite("Data Source=cardgame.db"));
+var dbPath = Path.Combine(
+    AppContext.BaseDirectory,
+    "cardgame.db"
+);
+
+builder.Services.AddDbContext<GameDbContext>(options =>
+{
+    options.UseSqlite($"Data Source={dbPath}");
+});
+
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 builder.Services.AddScoped<JwtTokenService>();
