@@ -608,17 +608,12 @@ return (
                                 {canStop ? "🛑 STOP" : "STOP"}
                             </button>
                             <button
-                            className="win-btn highlight"
-                            onClick={() =>
-                                connection.invoke("ToggleNaturalBagaji", roomId).then((isEnabled: boolean) => {
-                                    setGame((prev: GameState) => ({
-                                        ...prev,
-                                        isNaturalBagajiEnabled: isEnabled
-                                    }));
-                                })
-                            }
+                                className="win-btn highlight"
+                                onClick={() => {
+                                    connection.invoke("ToggleNaturalBagaji", roomId);
+                                }}
                             >
-                            자연바가지 {game.isNaturalBagajiEnabled ? "ON" : "OFF"}
+                                자연바가지 {game.isNaturalBagajiEnabled ? "ON" : "OFF"}
                             </button>
                         </div>
                     </div>
