@@ -1102,6 +1102,9 @@ public class GameRoomService
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null || room.Deck.Count == 0) return room;
 
+        // 🔹 손패가 3장 또는 6장이면 더 이상 뽑을 수 없음
+        if (player.Hand.Count == 3 || player.Hand.Count == 6) return room;
+
         // 플레이어 턴 횟수 확인하기(승리선언 하기위함)
         player.RoundTurnCount++;
 
