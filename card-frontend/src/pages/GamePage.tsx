@@ -45,6 +45,9 @@ export default function GamePage() {
     const [hasNewMessage, setHasNewMessage] = useState(false);
     const [winnerHand, setWinnerHand] = useState<any[]>([]);
     const [winnerName, setWinnerName] = useState<string | null>(null);
+    const [chatWidth, setChatWidth] = useState(260);
+    const [chatHeight, setChatHeight] = useState(320);
+
     
     // // 메시지가 새로 추가되면 자동으로 채팅창을 펼침
     // useEffect(() => {
@@ -53,6 +56,39 @@ export default function GamePage() {
     //     }
     // }, [messages]);
     const chatRef = useRef<HTMLDivElement>(null);
+    const resizeDirection = useRef<null | "left" | "top" | "corner">(null);
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!resizeDirection.current) return;
+
+            if (resizeDirection.current === "left" || resizeDirection.current === "corner") {
+                setChatWidth(prev => {
+                    const newWidth = prev + (window.innerWidth - e.clientX - prev - 20);
+                    return Math.max(200, Math.min(newWidth, 600));
+                });
+            }
+
+            if (resizeDirection.current === "top" || resizeDirection.current === "corner") {
+                setChatHeight(prev => {
+                    const newHeight = prev + (window.innerHeight - e.clientY - prev - 20);
+                    return Math.max(150, Math.min(newHeight, 700));
+                });
+            }
+        };
+
+        const handleMouseUp = () => {
+            resizeDirection.current = null;
+        };
+
+        window.addEventListener("mousemove", handleMouseMove);
+        window.addEventListener("mouseup", handleMouseUp);
+
+        return () => {
+            window.removeEventListener("mousemove", handleMouseMove);
+            window.removeEventListener("mouseup", handleMouseUp);
+        };
+    }, []);
 
     useEffect(() => {
         // chatRef.current가 존재하는지(null이 아닌지) 체크 후 호출
@@ -74,6 +110,19 @@ export default function GamePage() {
             connection.off("NaturalBagajiToggled");
         };
     }, [connection]);
+
+    useEffect(() => {
+        localStorage.setItem("chatSize", JSON.stringify({ chatWidth, chatHeight }));
+        }, [chatWidth, chatHeight]);
+
+        useEffect(() => {
+            const saved = localStorage.getItem("chatSize");
+            if (saved) {
+                const { chatWidth, chatHeight } = JSON.parse(saved);
+                setChatWidth(chatWidth);
+                setChatHeight(chatHeight);
+            }
+    }, []);
 
     // ✅ 에러 메시지 처리를 위한 상태 추가
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -149,7 +198,14 @@ export default function GamePage() {
             }
             prevHandRef.current = currentHandKeys;
 
-            setGame({ ...data });
+            const playersArr2 = data.players || data.Players || [];
+            const me2 = playersArr2.find((p: any) => (p.playerId || p.PlayerId) === myId);
+
+            setGame((prev: any) => ({
+                ...data,
+                isNaturalBagajiEnabled: me2?.allowNaturalBagaji ?? me2?.AllowNaturalBagaji ?? prev?.isNaturalBagajiEnabled ?? true
+            }));
+
             
             const roundEnded = data.isRoundEnded || data.IsRoundEnded;
             const gameFinished = data.isFinished || data.IsFinished;
@@ -894,118 +950,201 @@ return (
                     </div>
                 </div>
             )}
-            <div className="game-mini-chat" style={{
-                position: 'fixed',
-                bottom: '20px',
-                right: '20px',
-                width: '260px',
-                // 최소화 상태일 때 높이를 45px(헤더+경계)로 고정
-                height: isChatMinimized ? '45px' : '320px',
-                backgroundColor: 'rgba(15, 23, 42, 0.95)',
-                borderRadius: '12px',
-                display: 'flex',
-                flexDirection: 'column',
-                border: '1px solid #334155',
-                zIndex: 10002,
-                fontSize: '0.85rem',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                overflow: 'hidden',
-                transition: 'height 0.3s ease' // 높이 변경 시 부드러운 효과
-            }}>
-                {/* 헤더: 클릭 시 최소화/최대화 토글 및 알림 초기화 */}
-                <div 
+            <div
+                className="game-mini-chat"
+                style={{
+                    position: 'fixed',
+                    bottom: '20px',
+                    right: '20px',
+                    width: `${chatWidth}px`,
+                    height: isChatMinimized ? '45px' : `${chatHeight}px`,
+                    backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                    borderRadius: '12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    border: '1px solid #334155',
+                    zIndex: 10002,
+                    fontSize: '0.85rem',
+                    boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                    overflow: 'hidden',
+                    transition: 'height 0.3s ease'
+                }}
+            >
+
+                {/* ---------------- 리사이즈 핸들 (추가된 부분) ---------------- */}
+
+                {/* 좌측 핸들 */}
+                {!isChatMinimized && (
+                    <div
+                        onMouseDown={() => resizeDirection.current = "left"}
+                        style={{
+                            position: "absolute",
+                            left: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: "8px",
+                            cursor: "ew-resize",
+                            zIndex: 10003
+                        }}
+                    />
+                )}
+
+                {/* 상단 핸들 */}
+                {!isChatMinimized && (
+                    <div
+                        onMouseDown={() => resizeDirection.current = "top"}
+                        style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: "8px",
+                            cursor: "ns-resize",
+                            zIndex: 10003
+                        }}
+                    />
+                )}
+
+                {/* 좌상단 코너 핸들 */}
+                {!isChatMinimized && (
+                    <div
+                        onMouseDown={() => resizeDirection.current = "corner"}
+                        style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            width: "14px",
+                            height: "14px",
+                            cursor: "nwse-resize",
+                            zIndex: 10004
+                        }}
+                    />
+                )}
+
+                {/* ------------------------------------------------------------- */}
+
+                {/* 기존 헤더 */}
+                <div
                     onClick={() => {
                         setIsChatMinimized(!isChatMinimized);
-                        setHasNewMessage(false); // ✅ 클릭 시 알림 상태 초기화
+                        setHasNewMessage(false);
                     }}
-                    style={{ 
-                        padding: '10px 12px', 
-                        // ✅ 새 메시지가 있고 최소화 상태일 때 배경색을 노란색(#eab308)으로 변경
-                        background: (hasNewMessage && isChatMinimized) ? '#eab308' : '#1e293b', 
-                        borderBottom: isChatMinimized ? 'none' : '1px solid #334155', 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between', 
+                    style={{
+                        padding: '10px 12px',
+                        background: (hasNewMessage && isChatMinimized) ? '#eab308' : '#1e293b',
+                        borderBottom: isChatMinimized ? 'none' : '1px solid #334155',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
                         cursor: 'pointer',
                         userSelect: 'none',
                         transition: 'background-color 0.3s ease'
                     }}
                 >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <div style={{ 
-                            width: '8px', 
-                            height: '8px', 
-                            borderRadius: '50%', 
-                            // ✅ 알림 중일 때는 상태 표시등도 대비를 위해 어둡게 표시 가능
-                            backgroundColor: connected ? '#22c55e' : '#ef4444' 
-                        }}></div>
-                        <span style={{ 
-                            fontWeight: 'bold', 
-                            // ✅ 노란 배경일 때 글자색을 어두운 남색(#0f172a)으로 변경하여 가독성 확보
-                            color: (hasNewMessage && isChatMinimized) ? '#0f172a' : '#cbd5e1', 
-                            fontSize: '0.75rem', 
-                            letterSpacing: '0.05em' 
-                        }}>
+                        <div
+                            style={{
+                                width: '8px',
+                                height: '8px',
+                                borderRadius: '50%',
+                                backgroundColor: connected ? '#22c55e' : '#ef4444'
+                            }}
+                        />
+                        <span
+                            style={{
+                                fontWeight: 'bold',
+                                color: (hasNewMessage && isChatMinimized) ? '#0f172a' : '#cbd5e1',
+                                fontSize: '0.75rem',
+                                letterSpacing: '0.05em'
+                            }}
+                        >
                             {(hasNewMessage && isChatMinimized) ? 'NEW MESSAGE!' : 'LIVE CHAT'}
                         </span>
                     </div>
-                    {/* 최소화 상태 표시 아이콘 */}
-                    <span style={{ 
-                        color: (hasNewMessage && isChatMinimized) ? '#0f172a' : '#94a3b8', 
-                        fontSize: '0.7rem' 
-                    }}>
+
+                    <span
+                        style={{
+                            color: (hasNewMessage && isChatMinimized) ? '#0f172a' : '#94a3b8',
+                            fontSize: '0.7rem'
+                        }}
+                    >
                         {isChatMinimized ? '▲' : '▼'}
                     </span>
                 </div>
 
-                {/* 메시지 리스트: 최소화 상태가 아닐 때만 렌더링 */}
                 {!isChatMinimized && (
-                    <div className="chat-messages" style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        padding: '12px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '8px'
-                    }}>
+                    <div
+                        className="chat-messages"
+                        style={{
+                            flex: 1,
+                            overflowY: 'auto',
+                            padding: '12px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '8px'
+                        }}
+                    >
                         {messages.map((m, i) => {
                             const splitIdx = m.indexOf(" : ");
                             if (splitIdx === -1) return null;
 
-                            const user = m.substring(0, splitIdx).trim(); // 공백 제거
+                            const user = m.substring(0, splitIdx).trim();
                             const msg = m.substring(splitIdx + 3);
-                            const isMe = myProfile.name && user === myProfile.name.trim(); // 내 이름과 비교
+                            const isMe = myProfile.name && user === myProfile.name.trim();
 
                             return (
-                                <div key={i} style={{
-                                    alignSelf: isMe ? 'flex-end' : 'flex-start',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    alignItems: isMe ? 'flex-end' : 'flex-start',
-                                    maxWidth: '85%'
-                                }}>
-                                    {!isMe && <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginBottom: '2px' }}>{user}</div>}
-                                    <div style={{
-                                        backgroundColor: isMe ? '#2563eb' : '#334155',
-                                        color: 'white',
-                                        padding: '6px 12px',
-                                        borderRadius: isMe ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
-                                        fontSize: '0.8rem'
-                                    }}>
+                                <div
+                                    key={i}
+                                    style={{
+                                        alignSelf: isMe ? 'flex-end' : 'flex-start',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        alignItems: isMe ? 'flex-end' : 'flex-start',
+                                        maxWidth: '85%'
+                                    }}
+                                >
+                                    {!isMe && (
+                                        <div
+                                            style={{
+                                                fontSize: '0.65rem',
+                                                color: '#94a3b8',
+                                                marginBottom: '2px'
+                                            }}
+                                        >
+                                            {user}
+                                        </div>
+                                    )}
+                                    <div
+                                        style={{
+                                            backgroundColor: isMe ? '#2563eb' : '#334155',
+                                            color: 'white',
+                                            padding: '6px 12px',
+                                            borderRadius: isMe
+                                                ? '12px 12px 2px 12px'
+                                                : '12px 12px 12px 2px',
+                                            fontSize: '0.8rem'
+                                        }}
+                                    >
                                         {msg}
                                     </div>
                                 </div>
                             );
                         })}
-                        {/* 자동 스크롤을 위한 하단 지점 */}
                         <div ref={chatRef} />
                     </div>
                 )}
 
-                {/* 입력창: 최소화 상태가 아닐 때만 하단에 고정 */}
                 {!isChatMinimized && (
-                    <div style={{ padding: '10px', background: '#0f172a', borderTop: '1px solid #334155', display: 'flex', gap: '6px' }}>
-                        <input 
+                    <div
+                        style={{
+                            padding: '10px',
+                            background: '#0f172a',
+                            borderTop: '1px solid #334155',
+                            display: 'flex',
+                            gap: '6px'
+                        }}
+                    >
+                        <input
                             className="chat-input"
                             style={{
                                 flex: 1,
@@ -1017,12 +1156,12 @@ return (
                                 fontSize: '0.8rem',
                                 outline: 'none'
                             }}
-                            placeholder="메시지 입력..." 
-                            value={input} 
+                            placeholder="메시지 입력..."
+                            value={input}
                             onChange={e => setInput(e.target.value)}
                             onKeyDown={e => e.key === 'Enter' && sendMessage()}
                         />
-                        <button 
+                        <button
                             onClick={sendMessage}
                             disabled={!connected}
                             style={{
