@@ -129,6 +129,7 @@ export default function GamePage() {
 
     const myId = connection.connectionId;
     const prevHandRef = useRef<string[]>([]);
+    const hasUpdatedResultRef = useRef(false);
     const isSubscribed = useRef(false);
 
     // 🟢 카드 고유 키 생성
@@ -210,17 +211,22 @@ export default function GamePage() {
             const roundEnded = data.isRoundEnded || data.IsRoundEnded;
             const gameFinished = data.isFinished || data.IsFinished;
 
-            if (gameFinished) {
-                setShowRoundResult(false); 
-                try {
-                    // 서버에 게임 결과 반영 요청
-                    await connection.invoke("UpdateGameResult", roomId);
-                } catch (err) {
-                    console.error("DB 업데이트 요청 실패:", err);
-                }
-            } else if (roundEnded) {
-                setShowRoundResult(true);
-            }
+            // if (
+            //     gameFinished &&
+            //     !hasUpdatedResultRef.current &&
+            //     game?.winnerName === myProfile.name
+            // )
+            // {
+            //     hasUpdatedResultRef.current = true;
+
+            //     setShowRoundResult(false);
+
+            //     try {
+            //         await connection.invoke("UpdateGameResult", roomId);
+            //     } catch (err) {
+            //         console.error("DB 업데이트 요청 실패:", err);
+            //     }
+            // }
         };
 
         const onHideResultBoard = () => setShowRoundResult(false);
@@ -262,6 +268,8 @@ export default function GamePage() {
             connection.on("ConnectedUser", onConnectedUser);
 
             connection.on("GameStarted", (data) => {
+                hasUpdatedResultRef.current = false;
+
                 setGame((prev: any) => ({
                     ...prev,
                     winnerName: null,

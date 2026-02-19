@@ -24,7 +24,6 @@ export default function LobbyPage() {
     const navigate = useNavigate();
     const { logout } = useAuth();
 
-    // 스크롤을 제어하기 위한 Ref 생성
     const chatEndRef = useRef<HTMLDivElement>(null);
 
     const [connected, setConnected] = useState(connection.state === "Connected");
@@ -45,7 +44,6 @@ export default function LobbyPage() {
     const [title, setTitle] = useState("");
     const [password, setPassword] = useState("");
 
-    // 메시지 목록이 변경될 때마다 하단으로 스크롤 이동
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }, [messages]);
@@ -54,6 +52,7 @@ export default function LobbyPage() {
         let mounted = true;
 
         const setup = async () => {
+
             connection.on("ConnectedUser", (data: any) => {
                 if (mounted) {
                     if (typeof data === "string") {
@@ -70,9 +69,29 @@ export default function LobbyPage() {
                 }
             });
 
+            // 🔥 추가: 서버에서 통계 갱신 알림 받으면 다시 프로필 조회
+            connection.on("UpdateUserStats", async () => {
+                if (!mounted) return;
+                try {
+                    const profile = await connection.invoke("GetMyProfile");
+                    if (profile) {
+                        setMyProfile({
+                            name: profile.name || "",
+                            wins: profile.wins || 0,
+                            totalGames: profile.totalGames || 0,
+                            maxScore: profile.maxScore || 0,
+                            minScore: profile.minScore || 0
+                        });
+                    }
+                } catch (err) {
+                    console.error("프로필 갱신 실패", err);
+                }
+            });
+
             connection.on("ReceiveMessage", (user, message) => {
                 if (mounted) setMessages(prev => [...prev, `${user} : ${message}`]);
             });
+
             connection.on("RoomList", (rooms) => mounted && setRooms(rooms));
             
             connection.on("RoomCreated", (roomId) => {
@@ -91,10 +110,25 @@ export default function LobbyPage() {
             });
 
             connection.onclose(() => mounted && setConnected(false));
+
             const isConnected = await ensureConnection();
             if (mounted) {
                 setConnected(isConnected);
-                if (isConnected) await connection.invoke("EnterLobby");
+                if (isConnected) {
+                    await connection.invoke("EnterLobby");
+
+                    // 🔥 최초 접속 시 프로필 1회 조회
+                    const profile = await connection.invoke("GetMyProfile");
+                    if (profile) {
+                        setMyProfile({
+                            name: profile.name || "",
+                            wins: profile.wins || 0,
+                            totalGames: profile.totalGames || 0,
+                            maxScore: profile.maxScore || 0,
+                            minScore: profile.minScore || 0
+                        });
+                    }
+                }
             }
         };
 
@@ -103,6 +137,7 @@ export default function LobbyPage() {
         return () => {
             mounted = false;
             connection.off("ConnectedUser");
+            connection.off("UpdateUserStats"); // 🔥 추가
             connection.off("ReceiveMessage");
             connection.off("RoomList");
             connection.off("RoomCreated");
@@ -272,10 +307,10 @@ export default function LobbyPage() {
                     <div className="modal-content" style={{ maxWidth: '350px' }}>
                         <h2 style={{ color: '#38bdf8', marginTop: 0 }}>My Profile</h2>
                         <div style={{ textAlign: 'left', backgroundColor: '#1e293b', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #334155' }}>
-                            <p style={{ margin: '0.5rem 0' }}><strong>Name:</strong> {myProfile.name}</p>
+                            <p style={{ margin: '0.5rem 0', color: '#38bdf8'}}><strong>Name:</strong> {myProfile.name}</p>
                             <hr style={{ borderColor: '#334155', margin: '1rem 0' }} />
                             
-                            <p style={{ margin: '0.5rem 0' }}>
+                            <p style={{ margin: '0.5rem 0', color: '#38bdf8' }}>
                                 <strong>Win Rate:</strong> <span style={{ color: '#fbbf24' }}>{winRate}%</span>
                             </p>
                             <p style={{ margin: '0.5rem 0', fontSize: '0.9rem', color: '#94a3b8' }}>

@@ -48,4 +48,5 @@ public class GameRoom
     public string LastActorPlayerId { get; set; } = string.Empty;
     public bool IsStopDeclared { get; set; } = false;
     public string StopCallerId { get; set; } = "";
+    public bool IsResultUpdated { get; set; } = false;
 }

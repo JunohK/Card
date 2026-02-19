@@ -467,6 +467,7 @@ public class GameHub : Hub
                 WinType = room.LastWinType
             }
         );
+        await UpdateGameResult(roomId);
 
         await Clients.Group(roomId).SendAsync("RoomUpdated", room);
     }
@@ -531,6 +532,8 @@ public class GameHub : Hub
 
         // 3. 최신 데이터 전송
         await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+
+        await UpdateGameResult(roomId);
         
         // 4. 전광판을 띄우는 대신 바로 나가게 하고 싶다면 이 신호를 보냄
         // 만약 결과 확인 후 나가게 하고 싶다면 "GameTerminated" 신호를 사용
@@ -594,8 +597,18 @@ public class GameHub : Hub
     // ✅ 게임 결과 업데이트 (Nickname 사용)
     public async Task UpdateGameResult(string roomId)
     {
+        Console.WriteLine("UpdateGameResult 호출됨");
         var room = _roomService.GetRoom(roomId);
-        if (room == null || !room.IsFinished) return;
+        if (room == null) return;
+
+        Console.WriteLine($"IsFinished: {room.IsFinished}");
+        Console.WriteLine($"IsResultUpdated: {room.IsResultUpdated}");
+
+        if (!room.IsFinished) return;
+
+        if (room.IsResultUpdated) return;
+
+        room.IsResultUpdated = true;
 
         foreach (var p in room.Players)
         {

@@ -125,6 +125,7 @@ public class GameRoomService
         room.IsFinished = false;
         room.WinnerHand.Clear(); // 이전 우승자의 카드리스트 비움
         room.RoundTurnSequence = 0;
+        room.IsResultUpdated = false;
 
         // STOP 관련 상태 초기화
         room.IsStopDeclared = false;
@@ -153,6 +154,7 @@ public class GameRoomService
         room.WinnerName = null;
         room.WinnerPlayerId = null;
         room.WinnerHand.Clear(); // 라운드 시작 시 카드 리스트 초기화
+        room.IsResultUpdated = false;
 
         foreach (var p in room.Players)
         {
@@ -604,13 +606,13 @@ public class GameRoomService
         return (false, 0);
     }
 
-    // 2.1 & 3.1 가로채기 체크 (다른 유저가 카드를 냈을 때 호출)
+    // 2.1 & 3.1 바가지 체크 (다른 유저가 카드를 냈을 때 호출)
     // void를 Task로 바꾸고 async를 추가합니다. (기존 호출부에서 await만 붙여주면 됩니다)
     public async Task CheckInterception(GameRoom room, string cardOwnerId, PlayingCard playedCard)
     {
         foreach (var player in room.Players.Where(p => p.PlayerId != cardOwnerId))
         {
-            // 1. 카드 2장 상태 가로채기
+            // 1. 카드 2장 상태 바가지
             if (player.Hand.Count == 2)
             {
                 bool isWaiting = player.Hand.Any(c => c.Rank == "Joker" || c.Rank == "JK") || 
@@ -791,6 +793,7 @@ public class GameRoomService
             p.TotalScore += p.Score;
         }
 
+        room.CurrentRound++;
         CheckAndEndFullGame(room);
     }
 
