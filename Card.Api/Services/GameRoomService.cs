@@ -202,7 +202,7 @@ public class GameRoomService
 
     public void StartTurn(GameRoom room)
     {
-        if (room.IsFinished) return;
+        if (room.IsFinished || room.IsRoundEnded) return;
 
         var currentPlayer = room.Players
             .FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
@@ -789,12 +789,16 @@ public class GameRoomService
                 p.Score = CalculateLoserScore(p.Hand);
             }
 
-            // 🔴 중요: 실질적인 누적 점수에 합산하여 전광판에 반영
+            // 중요: 실질적인 누적 점수에 합산하여 전광판에 반영
             p.TotalScore += p.Score;
         }
 
+        // 수정했는데 바가지 동작 안해서 주석처리
         room.CurrentRound++;
         CheckAndEndFullGame(room);
+
+        // 수정 이전 코드
+        // room.IsFinished = true;
     }
 
     private void ApplyInterceptionWin(GameRoom room, Player winner, string loserId, int penalty)
@@ -1014,17 +1018,21 @@ public class GameRoomService
             player.TotalScore += player.Score;
         }
 
+        room.CurrentRound++;
+        CheckAndEndFullGame(room);
+
         // 라운드 종료 및 전체 게임 종료 체크
-        if (room.CurrentRound >= room.MaxRounds)
-        {
-            room.IsFinished = true;
-            room.IsStarted = false;
-        }
+        // if (room.CurrentRound >= room.MaxRounds)
+        // {
+        //     room.IsFinished = true;
+        //     room.IsStarted = false;
+        // }
     }
 
     public void EndTurn(GameRoom room)
     {
-        if (room.IsFinished) return;
+        // if (room.IsFinished) return;
+        if (room.IsFinished || room.IsRoundEnded) return;
 
         var currentPlayer = room.Players
             .FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);

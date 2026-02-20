@@ -155,7 +155,7 @@ public class GameHub : Hub
         try
         {
             var room = _roomService.GetRoom(roomId);
-            if (room == null || !room.IsStarted || room.IsFinished) return;
+            if (room == null || !room.IsStarted || room.IsFinished || room.IsRoundEnded) return;
 
             string cardOwnerId = Context.ConnectionId;
 
@@ -297,6 +297,7 @@ public class GameHub : Hub
         
         // 알림 메시지 전송
         var room = _roomService.GetRoom(roomId);
+        if (room == null || room.IsRoundEnded || room.IsFinished) return;
         var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
         if (player != null && room.IsStopDeclared)
         {
@@ -311,6 +312,8 @@ public class GameHub : Hub
         _roomService.DeclarePung(roomId, Context.ConnectionId);
 
         var room = _roomService.GetRoom(roomId);
+        if (room == null || room.IsRoundEnded || room.IsFinished) return;
+
         var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
 
         if (player != null)
@@ -359,6 +362,7 @@ public class GameHub : Hub
     public async Task InterceptWin(string roomId)
     {
         var room = _roomService.GetRoom(roomId);
+        if (room == null || room.IsFinished) return;
         if (room == null || room.LastDiscardedCard == null) return;
 
         var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
@@ -374,11 +378,16 @@ public class GameHub : Hub
             _roomService.DeclareInterceptionWin(room, player, room.LastActorPlayerId); 
             await Clients.Group(roomId).SendAsync("RoomUpdated", room);
             await Clients.Group(roomId).SendAsync("ShowResultBoard", room);
+
+            await UpdateGameResult(roomId);
         }
     }
 
     public async Task DrawCard(string roomId)
     {
+        var room = _roomService.GetRoom(roomId);
+        if (room == null || room.IsRoundEnded || room.IsFinished) return;
+        
         var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
         if (updatedRoom != null)
         {

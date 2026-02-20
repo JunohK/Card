@@ -211,22 +211,21 @@ export default function GamePage() {
             const roundEnded = data.isRoundEnded || data.IsRoundEnded;
             const gameFinished = data.isFinished || data.IsFinished;
 
-            // if (
-            //     gameFinished &&
-            //     !hasUpdatedResultRef.current &&
-            //     game?.winnerName === myProfile.name
-            // )
-            // {
-            //     hasUpdatedResultRef.current = true;
+            if (
+                gameFinished &&
+                !hasUpdatedResultRef.current
+            )
+            {
+                hasUpdatedResultRef.current = true;
 
-            //     setShowRoundResult(false);
+                setShowRoundResult(false);
 
-            //     try {
-            //         await connection.invoke("UpdateGameResult", roomId);
-            //     } catch (err) {
-            //         console.error("DB 업데이트 요청 실패:", err);
-            //     }
-            // }
+                try {
+                    await connection.invoke("UpdateGameResult", roomId);
+                } catch (err) {
+                    console.error("DB 업데이트 요청 실패:", err);
+                }
+            }
         };
 
         const onHideResultBoard = () => setShowRoundResult(false);
