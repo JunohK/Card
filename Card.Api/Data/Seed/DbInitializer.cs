@@ -1,4 +1,5 @@
 using Card.Api.Models;
+using Microsoft.EntityFrameworkCore;
 
 namespace Card.Api.Data.Seed;
 
@@ -15,8 +16,8 @@ public static class DbInitializer
     
     public static void Seed(GameDbContext context)
     {
-        // DB 생성 보장
-        context.Database.EnsureCreated();
+        // 마이그레이션 적용 (DB 없으면 생성, 있으면 최신 스키마까지 갱신)
+        context.Database.Migrate();
 
         // 이미 카드가 있으면 Seed 하지 않음(중복방지)
         if(context.Cards.Any())

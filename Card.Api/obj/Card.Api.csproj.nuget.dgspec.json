@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj": {}
+    "c:\\personalProject\\card\\Card.Api\\Card.Api.csproj": {}
   },
   "projects": {
-    "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj": {
+    "c:\\personalProject\\card\\Card.Api\\Card.Api.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",
+        "projectUniqueName": "c:\\personalProject\\card\\Card.Api\\Card.Api.csproj",
         "projectName": "Card.Api",
-        "projectPath": "C:\\personalProject\\card\\Card.Api\\Card.Api.csproj",
+        "projectPath": "c:\\personalProject\\card\\Card.Api\\Card.Api.csproj",
         "packagesPath": "C:\\Users\\김준오\\.nuget\\packages\\",
-        "outputPath": "C:\\personalProject\\card\\Card.Api\\obj\\",
+        "outputPath": "c:\\personalProject\\card\\Card.Api\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\김준오\\AppData\\Roaming\\NuGet\\NuGet.Config"

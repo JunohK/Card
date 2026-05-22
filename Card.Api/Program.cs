@@ -71,8 +71,9 @@ builder.Services.AddCors(options =>
 });
 
 // DB / SignalR / Services 동일
+// ContentRootPath = csproj 폴더. bin/Debug 출력 경로 변경에도 DB 위치 고정.
 var dbPath = Path.Combine(
-    AppContext.BaseDirectory,
+    builder.Environment.ContentRootPath,
     "cardgame.db"
 );
 

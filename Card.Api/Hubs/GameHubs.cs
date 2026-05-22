@@ -24,11 +24,20 @@ public class GameHub : Hub
         _context = context;
     }
 
-    // ✅ 로비 진입 (닉네임 전송 및 목록 갱신)
+    // ✅ 로비 진입 (프로필 통계 전송 및 목록 갱신)
     public async Task EnterLobby()
     {
-        var nickname = Context.User?.Identity?.Name ?? "Unknown";
-        await Clients.Caller.SendAsync("ConnectedUser", nickname);
+        var profile = await GetMyProfile();
+        if (profile != null)
+        {
+            await Clients.Caller.SendAsync("ConnectedUser", profile);
+        }
+        else
+        {
+            // DB에 사용자 없음/미인증 fallback
+            var nickname = Context.User?.Identity?.Name ?? "Unknown";
+            await Clients.Caller.SendAsync("ConnectedUser", nickname);
+        }
         await SendRoomListToAll();
     }
 
@@ -611,9 +620,14 @@ public class GameHub : Hub
                 {
                     user.Wins += 1;
                 }
-                
+
                 // 스코어 기록 업데이트 로직
                 if (p.TotalScore > user.MaxScore) user.MaxScore = p.TotalScore;
+                // MinScore: 첫 게임이면 무조건 설정, 이후엔 더 작을 때만 갱신
+                if (user.TotalGames == 1 || p.TotalScore < user.MinScore)
+                {
+                    user.MinScore = p.TotalScore;
+                }
             }
         }
 

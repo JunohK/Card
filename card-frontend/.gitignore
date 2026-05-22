@@ -27,3 +27,7 @@ dist-ssr
 [Oo]bj/
 *.dll
 *.exe
+
+# Claude Code (per-user)
+CLAUDE.local.md
+.claude/settings.local.json
