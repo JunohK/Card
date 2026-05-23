@@ -1,0 +1,87 @@
+# =========================
+# .NET / Visual Studio
+# =========================
+bin/
+obj/
+*.user
+*.suo
+*.userprefs
+.vs/
+*.dbmdl
+*.dbproj.schemaview
+*.pidb
+*.svclog
+*.scc
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+publish/
+[Pp]ublishProfiles/
+
+# Roslyn cache directories
+*.ide/
+
+# Rider
+.idea/
+
+# User-specific files
+*.rsuser
+*.userosscache
+*.sln.docstates
+
+# =========================
+# Node / Vite
+# =========================
+node_modules/
+dist/
+build/
+.vite/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.local
+.env.*.local
+secrets.json
+appsettings.Production.json
+appsettings.*.Production.json
+
+# =========================
+# SQLite (game database)
+# =========================
+*.db
+*.db-shm
+*.db-wal
+
+# =========================
+# Claude Code (개인 설정 — 공유 안 함)
+# =========================
+CLAUDE.md
+CLAUDE.local.md
+.claude/
+
+# =========================
+# Editor
+# =========================
+.vscode/
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
