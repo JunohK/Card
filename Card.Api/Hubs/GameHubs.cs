@@ -4,9 +4,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.Authorization;
 using Card.Api.GameLogic;
 using Card.Api.Data;
-using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
-using SQLitePCL;
 
 namespace Card.Hubs;
 
@@ -24,20 +22,26 @@ public class GameHub : Hub
         _context = context;
     }
 
-    // ✅ 로비 진입 (프로필 통계 전송 및 목록 갱신)
+    // ✅ 로비 진입 (프로필 객체 전송 및 목록 갱신)
     public async Task EnterLobby()
     {
-        var profile = await GetMyProfile();
-        if (profile != null)
-        {
-            await Clients.Caller.SendAsync("ConnectedUser", profile);
-        }
-        else
-        {
-            // DB에 사용자 없음/미인증 fallback
-            var nickname = Context.User?.Identity?.Name ?? "Unknown";
-            await Clients.Caller.SendAsync("ConnectedUser", nickname);
-        }
+        var nickname = Context.User?.Identity?.Name ?? "Unknown";
+
+        var user = await _context.Users
+            .FirstOrDefaultAsync(u => u.Nickname == nickname);
+
+        object profile = user != null
+            ? new
+            {
+                name = user.Nickname,
+                wins = user.Wins,
+                totalGames = user.TotalGames,
+                maxScore = user.MaxScore,
+                minScore = user.MinScore
+            }
+            : new { name = nickname, wins = 0, totalGames = 0, maxScore = 0, minScore = 0 };
+
+        await Clients.Caller.SendAsync("ConnectedUser", profile);
         await SendRoomListToAll();
     }
 
@@ -62,12 +66,27 @@ public class GameHub : Hub
         var room = _roomService.GetRoom(roomId);
         if (room == null) throw new HubException("방을 찾을 수 없습니다.");
 
-        // 2. 닉네임 추출 (이 부분이 서비스 로직과 맞아야 합니다)
+        // 2. 닉네임 추출
         var nickname = Context.User?.Identity?.Name ?? "Unknown";
 
-        // 3. 서비스 호출 (비밀번호가 틀리거나 인원이 꽉 차면 여기서 예외가 발생할 수 있음)
-        // 기존에 잘 되던 서비스 코드를 그대로 타게 합니다.
-        var updatedRoom = _roomService.JoinRoom(roomId, Context.ConnectionId, nickname, password);
+        // 3. 서비스 호출 — 비밀번호/인원 등 검증 실패 시 예외 발생
+        GameRoom? updatedRoom;
+        try
+        {
+            updatedRoom = _roomService.JoinRoom(roomId, Context.ConnectionId, nickname, password);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // 비밀번호 불일치 — 클라이언트에 명확한 메시지 + invoke 실패로 알림
+            await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
+            throw new HubException(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            // 인원 초과 등 기타 예외
+            await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
+            throw new HubException(ex.Message);
+        }
 
         if (updatedRoom != null)
         {
@@ -159,6 +178,32 @@ public class GameHub : Hub
         await Clients.Group(roomId).SendAsync("RoomUpdated", room);
     }
 
+    // 조커 갯수 변경 (0, 1, 2). 방장만 가능, 게임 시작 전에만
+    public async Task UpdateJokerCount(string roomId, int jokerCount)
+    {
+        var room = _roomService.GetRoom(roomId);
+        if (room == null) return;
+        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.IsStarted) return;
+        if (jokerCount < 0 || jokerCount > 2) return;
+
+        room.JokerCount = jokerCount;
+        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+    }
+
+    // 카드 모드 변경 (0=Trump, 1=Hwatu). 방장만 가능, 게임 시작 전에만
+    public async Task UpdateCardMode(string roomId, int cardMode)
+    {
+        var room = _roomService.GetRoom(roomId);
+        if (room == null) return;
+        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.IsStarted) return;
+        if (!Enum.IsDefined(typeof(CardMode), cardMode)) return;
+
+        room.CardMode = (CardMode)cardMode;
+        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+    }
+
     public async Task PlayCard(string roomId, PlayingCard card)
     {
         try
@@ -175,20 +220,39 @@ public class GameHub : Hub
             // 2. 즉시 전송하여 바닥에 카드가 깔린 것을 모두에게 보여줌
             await Clients.Group(roomId).SendAsync("RoomUpdated", room);
 
+            // 2-1. 바가지/STOP 등 즉시 라운드 종료된 경우 — 결과만 전파하고 종료
+            if (room.IsRoundEnded || room.IsFinished)
+            {
+                await Clients.Group(roomId).SendAsync("ShowResultBoard", new
+                {
+                    WinnerPlayerId = room.WinnerPlayerId,
+                    WinnerName = room.WinnerName,
+                    WinnerHand = room.WinnerHand,
+                    WinType = room.LastWinType
+                });
+                return;
+            }
+
             // 3. 뻥(내 패에 동일 숫자 2장 보유) 가능 유저 체크
             var canPung = room.Players.Any(p => p.PlayerId != cardOwnerId && CheckCanIntercept(p, card));
 
             if (canPung)
             {
-                // 🔥 3초 대기: 다른 유저가 InterruptDiscard를 호출할 시간을 줌
-                await Task.Delay(3000); 
+                // 뻥 윈도우 atomic open — InterruptDiscard/InterceptWin이 이 안에서 단 1명만 통과
+                Interlocked.Exchange(ref room.PungWindowFlag, 1);
 
-                // 3초 후 체크: 아무도 뻥을 안 해서 턴이 그대로라면 그때 다음 사람으로 넘김
-                if (room.CurrentTurnPlayerId == cardOwnerId)
+                // 🔥 3초 대기: 다른 유저가 InterruptDiscard를 호출할 시간을 줌
+                await Task.Delay(3000);
+
+                // 3초 후 윈도우 close 시도: 1→0 성공이면 아무도 안 가로챈 것
+                bool noPungOccurred = Interlocked.CompareExchange(ref room.PungWindowFlag, 0, 1) == 1;
+
+                if (noPungOccurred && !room.IsRoundEnded && !room.IsFinished && room.CurrentTurnPlayerId == cardOwnerId)
                 {
                     MoveToNextTurn(room, cardOwnerId);
                     await Clients.Group(roomId).SendAsync("RoomUpdated", room);
                 }
+                // 누가 가로챘으면 그 핸들러에서 turn/결과를 이미 전파했으므로 여기서는 아무것도 안 함
             }
             else
             {
@@ -225,11 +289,15 @@ public class GameHub : Hub
             var room = _roomService.GetRoom(roomId);
             if (room == null || room.IsRoundEnded) return;
 
-            var targetCard = room.LastDiscardedCard; 
+            var targetCard = room.LastDiscardedCard;
             if (targetCard == null) return;
 
             var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
             if (player == null) return;
+
+            // 자격 검증을 먼저 한 뒤, atomic하게 윈도우 닫기 시도 (한 명만 통과)
+            if (!CheckCanIntercept(player, targetCard)) return;
+            if (Interlocked.CompareExchange(ref room.PungWindowFlag, 0, 1) != 1) return;
 
             // --- [다른 플레이어의 6장 또는 3장 패 회수 로직] ---
             foreach (var p in room.Players)
@@ -316,8 +384,13 @@ public class GameHub : Hub
 
     public async Task DeclarePung(string roomId)
     {
-        // 서비스의 로직 호출
-        _roomService.DeclarePung(roomId, Context.ConnectionId);
+        // 서비스에서 자격 검증 후 성공 시에만 알림
+        bool success = _roomService.DeclarePung(roomId, Context.ConnectionId);
+        if (!success)
+        {
+            await Clients.Caller.SendAsync("ErrorMessage", "뻥 조건을 만족하지 않습니다.");
+            return;
+        }
 
         var room = _roomService.GetRoom(roomId);
         var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
@@ -330,35 +403,25 @@ public class GameHub : Hub
     }
 
 
-    // 가로채기 가능 여부 판단 보조 메서드 (Hub 내부에 작성하거나 Service로 이동 가능)
+    // 가로채기 가능 여부 판단 보조 메서드
+    // 조커 식별은 GameRoomService.IsJoker로 통일
     private bool CheckCanIntercept(Player player, PlayingCard playedCard)
     {
         // 3.1 룰: 내가 2장(같은 숫자) 들고 있는데 남이 그 숫자를 냈을 때
         if (player.Hand.Count == 2)
         {
-            bool isPair = player.Hand[0].Rank == player.Hand[1].Rank || player.Hand.Any(c => c.Rank == "Joker");
-            bool matchesPlayed = player.Hand.Any(c => c.Rank == playedCard.Rank) || playedCard.Rank == "Joker";
+            bool isPair = player.Hand[0].Rank == player.Hand[1].Rank || player.Hand.Any(c => GameRoomService.IsJoker(c));
+            bool matchesPlayed = player.Hand.Any(c => c.Rank == playedCard.Rank) || GameRoomService.IsJoker(playedCard);
             if (isPair && matchesPlayed) return true;
         }
 
-        // 2.1 룰: 내가 5장(3장+2장 구성) 들고 있는데 남이 내 3장짜리와 같은 숫자를 냈을 때
+        // 뻥 룰: 손패 5장이고 같은 랭크 카드 + 조커가 합쳐 2장 이상이면 뻥 가능
+        // (뻥 시 같은 랭크 2장 우선, 부족분은 조커로 채움 — InterruptDiscard 처리부와 동일 정책)
         if (player.Hand.Count == 5)
         {
-            var groupCounts = player.Hand.Where(c => c.Rank != "Joker")
-                                        .GroupBy(c => c.Rank)
-                                        .ToDictionary(g => g.Key, g => g.Count());
-            
-            int jokers = player.Hand.Count(c => c.Rank == "Joker");
-
-            // 내가 3장(조커 포함)을 만들 수 있는 랭크들 중 하나가 버려진 카드와 같은지 확인
-            foreach (var rank in groupCounts.Keys)
-            {
-                if (groupCounts[rank] + jokers >= 3 && rank == playedCard.Rank)
-                {
-                    // 남은 카드들이 2장(또는 조커 사용 후 2장) 세트가 되는지 추가 검증 필요시 CanMakeGroups 호출
-                    return true; 
-                }
-            }
+            int matchingRank = player.Hand.Count(c => c.Rank == playedCard.Rank);
+            int jokers = player.Hand.Count(c => GameRoomService.IsJoker(c));
+            if (matchingRank + jokers >= 2) return true;
         }
 
         return false;
@@ -373,17 +436,13 @@ public class GameHub : Hub
         var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
         if (player == null) return;
 
-        // 마지막으로 버려진 카드와 내 패를 대조
-        if (CheckCanIntercept(player, room.LastDiscardedCard))
-        {
-            // 카드를 마지막에 버린 사람(방출자) 찾기
-            var loser = room.Players.FirstOrDefault(p => p.PlayerId != player.PlayerId && p.PlayerId != room.CurrentTurnPlayerId); 
-            // 실제로는 방출자 ID를 Room에 저장해두는 것이 가장 정확합니다.
-            
-            _roomService.DeclareInterceptionWin(room, player, room.LastActorPlayerId); 
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-            await Clients.Group(roomId).SendAsync("ShowResultBoard", room);
-        }
+        // 자격 검증 → atomic 윈도우 close (InterruptDiscard와 동일 윈도우 공유, 한 명만 통과)
+        if (!CheckCanIntercept(player, room.LastDiscardedCard)) return;
+        if (Interlocked.CompareExchange(ref room.PungWindowFlag, 0, 1) != 1) return;
+
+        _roomService.DeclareInterceptionWin(room, player, room.LastActorPlayerId);
+        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await Clients.Group(roomId).SendAsync("ShowResultBoard", room);
     }
 
     public async Task DrawCard(string roomId)
@@ -391,13 +450,7 @@ public class GameHub : Hub
         var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
         if (updatedRoom != null)
         {
-            // 직접 플레이어를 찾아 턴 횟수 증가
-            var player = updatedRoom.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
-            if (player != null)
-            {
-                player.RoundTurnCount++;
-            }
-            
+            // RoundTurnCount는 Service.DrawCard에서 이미 증가시킴 (이중 증가 방지)
             await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
         }
     }
@@ -418,17 +471,6 @@ public class GameHub : Hub
         }
     }
 
-    // DrawCard(카드 뽑기) 메서드도 미리 추가해두세요 (에러 방지)
-    // [Authorize]
-    // public async Task DrawCard(string roomId)
-    // {
-    //     var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
-    //     if (updatedRoom != null)
-    //     {
-    //         await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
-    //     }
-    // }
-    
     // 승리 로직 계산
     public async Task DeclareWin(string roomId)
     {
@@ -513,19 +555,6 @@ public class GameHub : Hub
         }
     }
 
-    private bool CanDeclareWin(GameRoom room, Player player)
-    {
-        if (room.IsFinished || room.IsRoundEnded)
-            return false;
-
-        // 내 턴인지
-        if (room.CurrentTurnPlayerId != player.PlayerId)
-            return false;
-
-        // ❗ 누군가의 2번째 턴 시작 조건
-        return player.RoundTurnCount >= 2;
-    }
-    
     // 기권
     public async Task GiveUp(string roomId)
     {
@@ -620,14 +649,9 @@ public class GameHub : Hub
                 {
                     user.Wins += 1;
                 }
-
+                
                 // 스코어 기록 업데이트 로직
                 if (p.TotalScore > user.MaxScore) user.MaxScore = p.TotalScore;
-                // MinScore: 첫 게임이면 무조건 설정, 이후엔 더 작을 때만 갱신
-                if (user.TotalGames == 1 || p.TotalScore < user.MinScore)
-                {
-                    user.MinScore = p.TotalScore;
-                }
             }
         }
 

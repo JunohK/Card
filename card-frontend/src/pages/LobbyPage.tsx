@@ -166,9 +166,14 @@ export default function LobbyPage() {
                     <header className="lobby-header">
                         <div className="lobby-title-text">
                             <h1>LOBBY</h1>
-                            <p className="profile-trigger" onClick={() => setShowProfile(true)}>
+                            <button
+                                className="profile-btn"
+                                onClick={() => setShowProfile(true)}
+                                title="내 프로필 보기"
+                            >
+                                <span className="profile-icon">👤</span>
                                 Player: <span className="player-name">{myProfile.name || "Loading..."}</span>
-                            </p>
+                            </button>
                         </div>
                         <button className="logout-btn" onClick={() => { logout(); navigate("/login"); }}>
                             LOGOUT
@@ -267,44 +272,48 @@ export default function LobbyPage() {
             {/* 내 정보 프로필 모달 */}
             {showProfile && (
                 <div className="modal-overlay" onClick={() => setShowProfile(false)}>
-                    <div className="modal-content profile-modal" onClick={e => e.stopPropagation()}>
-                        <div className="profile-header">
+                    <div className="profile-modal" onClick={e => e.stopPropagation()}>
+                        <div className="profile-modal-header">
                             <div className="profile-avatar">
-                                {myProfile.name.charAt(0).toUpperCase() || "?"}
+                                {(myProfile.name || "?").charAt(0).toUpperCase()}
                             </div>
-                            <div className="profile-name-block">
-                                <span className="profile-name-label">My Profile</span>
-                                <span className="profile-name-value">{myProfile.name || "-"}</span>
+                            <h2 className="profile-name">{myProfile.name || "Unknown"}</h2>
+                        </div>
+
+                        <div className="profile-winrate-section">
+                            <div className="profile-winrate-header">
+                                <span className="profile-winrate-label">Win Rate</span>
+                                <span className="profile-winrate-value">{winRate}%</span>
+                            </div>
+                            <div className="profile-winrate-bar">
+                                <div
+                                    className="profile-winrate-fill"
+                                    style={{ width: `${Math.min(parseFloat(winRate), 100)}%` }}
+                                />
+                            </div>
+                            <div className="profile-winrate-meta">
+                                {myProfile.wins} Wins / {myProfile.totalGames} Games
                             </div>
                         </div>
 
                         <div className="profile-stats-grid">
-                            <div className="stat-card winrate">
-                                <div className="stat-card-label">Win Rate</div>
-                                <div className="stat-card-value">{winRate}%</div>
+                            <div className="profile-stat-card">
+                                <div className="profile-stat-icon">🏆</div>
+                                <div className="profile-stat-label">Max Score</div>
+                                <div className="profile-stat-value high">{myProfile.maxScore}</div>
                             </div>
-                            <div className="stat-card games">
-                                <div className="stat-card-label">Games</div>
-                                <div className="stat-card-value">{myProfile.totalGames}</div>
-                            </div>
-                            <div className="stat-card max">
-                                <div className="stat-card-label">🏆 Max Score</div>
-                                <div className="stat-card-value">{myProfile.maxScore}</div>
-                            </div>
-                            <div className="stat-card min">
-                                <div className="stat-card-label">📉 Min Score</div>
-                                <div className="stat-card-value">
-                                    {myProfile.totalGames > 0 ? myProfile.minScore : "-"}
+                            <div className="profile-stat-card">
+                                <div className="profile-stat-icon">📉</div>
+                                <div className="profile-stat-label">Min Score</div>
+                                <div className="profile-stat-value low">
+                                    {myProfile.minScore === 999 ? 0 : myProfile.minScore}
                                 </div>
                             </div>
                         </div>
 
-                        <div className="profile-meta">
-                            {myProfile.wins} Wins · {Math.max(0, myProfile.totalGames - myProfile.wins)} Losses
-                        </div>
-
                         <button
-                            className="logout-btn profile-close-btn"
+                            className="logout-btn"
+                            style={{ width: '100%', padding: '0.8rem' }}
                             onClick={() => setShowProfile(false)}
                         >
                             CLOSE

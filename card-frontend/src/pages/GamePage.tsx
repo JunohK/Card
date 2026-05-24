@@ -154,6 +154,27 @@ export default function GamePage() {
         return (r === "JOKER" || r === "JK") ? "JK" : r;
     };
 
+    // 화투 모드일 때 카드 이미지 경로 반환 (Trump 모드면 null → 기존 텍스트 카드로 폴백)
+    // 이미지 파일이 실제로 없어도 background-image는 그냥 안 보일 뿐 텍스트는 그대로 표시됨
+    const getCardImageSrc = (rank: string, suit: string): string | null => {
+        const isHwatu = (game?.cardMode ?? game?.CardMode) === 1;
+        if (!isHwatu) return null;
+        if (!rank) return null;
+
+        const r = rank.toString().toUpperCase();
+        if (r === "JOKER" || r === "JK") return "/cards/hwatu/joker.png";
+
+        const rankMap: Record<string, number> = { A: 1, J: 11, Q: 12 };
+        const rankNum = rankMap[r] ?? parseInt(r, 10);
+        if (isNaN(rankNum)) return null;
+
+        const suitMap: Record<string, string> = {
+            '♠': 'spade', '♥': 'heart', '♦': 'diamond', '♣': 'club'
+        };
+        const suitName = suitMap[suit] ?? 'spade';
+        return `/cards/hwatu/${rankNum}_${suitName}.png`;
+    };
+
     const sortCards = (cards: any[]) => {
         if (!cards) return [];
         return [...cards].sort((a, b) =>
@@ -600,27 +621,38 @@ return (
                                 {isHost && deckCount === 0 && <button className="reshuffle-badge" onClick={(e) => { e.stopPropagation(); handleReshuffle(); }}>🔄 셔플</button>}
                             </div>
                             
-                            <div className={`card-ui discard ${(lastDiscarded?.color || lastDiscarded?.Color) === 'Red' ? 'red' : 'black'}`}
-                                onClick={() => setShowDiscardModal(true)} 
-                                style={{ 
-                                    width: '100px',   // 동일하게 확장
-                                    height: '140px',  // 동일하게 확장
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    flexDirection: 'column',
-                                    justifyContent: 'center',
-                                    alignItems: 'center',
-                                    border: '2px solid #333',
-                                    borderRadius: '10px'
-                                }}
-                            >
-                                {lastDiscarded ? (
-                                    <>
-                                        <span className="rank">{getRankText(lastDiscarded.rank || lastDiscarded.Rank)}</span>
-                                        <span className="suit">{(lastDiscarded.suit || lastDiscarded.Suit) === "Joker" ? "🃏" : (lastDiscarded.suit || lastDiscarded.Suit)}</span>
-                                    </>
-                                ) : <span className="empty-label">DROP</span>}
-                            </div>
+                            {(() => {
+                                const discardImageSrc = lastDiscarded
+                                    ? getCardImageSrc(lastDiscarded.rank || lastDiscarded.Rank, lastDiscarded.suit || lastDiscarded.Suit)
+                                    : null;
+                                return (
+                                    <div className={`card-ui discard ${(lastDiscarded?.color || lastDiscarded?.Color) === 'Red' ? 'red' : 'black'}`}
+                                        onClick={() => setShowDiscardModal(true)}
+                                        style={{
+                                            width: '100px',
+                                            height: '140px',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            justifyContent: 'center',
+                                            alignItems: 'center',
+                                            border: '2px solid #333',
+                                            borderRadius: '10px',
+                                            backgroundImage: discardImageSrc ? `url(${discardImageSrc})` : undefined,
+                                            backgroundSize: 'cover',
+                                            backgroundPosition: 'center',
+                                            backgroundRepeat: 'no-repeat'
+                                        }}
+                                    >
+                                        {lastDiscarded ? (
+                                            <>
+                                                <span className="rank">{getRankText(lastDiscarded.rank || lastDiscarded.Rank)}</span>
+                                                <span className="suit">{(lastDiscarded.suit || lastDiscarded.Suit) === "Joker" ? "🃏" : (lastDiscarded.suit || lastDiscarded.Suit)}</span>
+                                            </>
+                                        ) : <span className="empty-label">DROP</span>}
+                                    </div>
+                                );
+                            })()}
                         </div>
 
                         {/* 액션 버튼 영역 (뻥과 STOP을 가로로 배치) */}
@@ -742,17 +774,22 @@ return (
                         const suitText = (card.suit === "Joker" || card.Suit === "Joker") ? "🃏" : (card.suit || card.Suit);
                         const cardKey = getCardKey(card);
                         const isNew = cardKey === lastDrawnCardKey;
+                        const imageSrc = getCardImageSrc(card.rank || card.Rank, card.suit || card.Suit);
 
                         return (
-                            <div key={cardKey} 
+                            <div key={cardKey}
                                 className={`card-ui my-card ${(card.color || card.Color) === 'Red' ? 'red' : 'black'} ${isNew ? "new-card-highlight" : ""}`}
-                                style={{ 
-                                    width: '90px', height: '130px', 
-                                    background: rankText === "JK" ? "#f1c40f" : "white", 
+                                style={{
+                                    width: '90px', height: '130px',
+                                    background: rankText === "JK" ? "#f1c40f" : "white",
+                                    backgroundImage: imageSrc ? `url(${imageSrc})` : undefined,
+                                    backgroundSize: 'cover',
+                                    backgroundPosition: 'center',
+                                    backgroundRepeat: 'no-repeat',
                                     cursor: canDiscardOrWin ? 'pointer' : 'default',
-                                    borderRadius: '10px', display: 'flex', flexDirection: 'column', 
-                                    justifyContent: 'space-between', padding: '10px', 
-                                    boxShadow: '0 4px 8px rgba(0,0,0,0.3)', transition: 'transform 0.1s' 
+                                    borderRadius: '10px', display: 'flex', flexDirection: 'column',
+                                    justifyContent: 'space-between', padding: '10px',
+                                    boxShadow: '0 4px 8px rgba(0,0,0,0.3)', transition: 'transform 0.1s'
                                 }}
                                 onClick={() => canDiscardOrWin && connection.invoke("PlayCard", roomId, card)}>
                                 <span className="rank" style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{rankText}</span>
@@ -795,9 +832,15 @@ return (
                                         // 카드 개별 데이터 확인용 로그
                                         if (i === 0) console.log("4. Sample Card Object:", card);
 
+                                        const imageSrc = getCardImageSrc(card.Rank || card.rank, card.Suit || card.suit);
+
                                         return (
-                                            <div key={i} style={{ 
-                                                width: '50px', height: '70px', background: 'white', borderRadius: '5px', 
+                                            <div key={i} style={{
+                                                width: '50px', height: '70px', background: 'white', borderRadius: '5px',
+                                                backgroundImage: imageSrc ? `url(${imageSrc})` : undefined,
+                                                backgroundSize: 'cover',
+                                                backgroundPosition: 'center',
+                                                backgroundRepeat: 'no-repeat',
                                                 display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
                                                 color: (card.Color || card.color) === 'Red' ? '#e74c3c' : '#2c3e50',
                                                 border: '1px solid #ddd', fontSize: '0.8rem',
@@ -881,17 +924,24 @@ return (
 
                             {/* 🏆 최종 우승자의 카드 노출 */}
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
-                                {sortCards(game.winnerHand || []).map((card: any, i: number) => (
-                                    <div key={i} style={{ 
-                                        width: '60px', height: '85px', background: 'white', borderRadius: '6px', 
-                                        display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
-                                        color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
-                                        boxShadow: '0 0 15px rgba(241, 196, 15, 0.5)'
-                                    }}>
-                                        <span style={{ fontWeight: 'bold', fontSize: '1rem' }}>{getRankText(card.rank || card.Rank)}</span>
-                                        <span style={{ fontSize: '1.8rem' }}>{(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}</span>
-                                    </div>
-                                ))}
+                                {sortCards(game.winnerHand || []).map((card: any, i: number) => {
+                                    const imageSrc = getCardImageSrc(card.rank || card.Rank, card.suit || card.Suit);
+                                    return (
+                                        <div key={i} style={{
+                                            width: '60px', height: '85px', background: 'white', borderRadius: '6px',
+                                            backgroundImage: imageSrc ? `url(${imageSrc})` : undefined,
+                                            backgroundSize: 'cover',
+                                            backgroundPosition: 'center',
+                                            backgroundRepeat: 'no-repeat',
+                                            display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
+                                            color: (card.color || card.Color) === 'Red' ? '#e74c3c' : '#2c3e50',
+                                            boxShadow: '0 0 15px rgba(241, 196, 15, 0.5)'
+                                        }}>
+                                            <span style={{ fontWeight: 'bold', fontSize: '1rem' }}>{getRankText(card.rank || card.Rank)}</span>
+                                            <span style={{ fontSize: '1.8rem' }}>{(card.suit || card.Suit) === "Joker" ? "🃏" : (card.suit || card.Suit)}</span>
+                                        </div>
+                                    );
+                                })}
                             </div>
 
                             <div style={{ color: '#f1c40f', marginTop: '10px' }}>
@@ -940,12 +990,25 @@ return (
                             <button onClick={() => setShowDiscardModal(false)} style={{ background: '#e74c3c', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px' }}>닫기</button>
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(65px, 1fr))', gap: '10px' }}>
-                            {sortCards(discardPile).map((card: any, idx: number) => (
-                                <div key={idx} style={{ background: 'white', color: (card.color ?? card.Color) === 'Red' ? 'red' : 'black', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
-                                    <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{getRankText(card.rank ?? card.Rank)}</div>
-                                    <div style={{ fontSize: '20px' }}>{(card.suit ?? card.Suit) === "Joker" ? "🃏" : (card.suit ?? card.Suit)}</div>
-                                </div>
-                            ))}
+                            {sortCards(discardPile).map((card: any, idx: number) => {
+                                const imageSrc = getCardImageSrc(card.rank ?? card.Rank, card.suit ?? card.Suit);
+                                return (
+                                    <div key={idx} style={{
+                                        background: 'white',
+                                        backgroundImage: imageSrc ? `url(${imageSrc})` : undefined,
+                                        backgroundSize: 'cover',
+                                        backgroundPosition: 'center',
+                                        backgroundRepeat: 'no-repeat',
+                                        color: (card.color ?? card.Color) === 'Red' ? 'red' : 'black',
+                                        borderRadius: '8px',
+                                        padding: '8px',
+                                        textAlign: 'center'
+                                    }}>
+                                        <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{getRankText(card.rank ?? card.Rank)}</div>
+                                        <div style={{ fontSize: '20px' }}>{(card.suit ?? card.Suit) === "Joker" ? "🃏" : (card.suit ?? card.Suit)}</div>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </div>
                 </div>

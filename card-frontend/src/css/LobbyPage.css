@@ -234,120 +234,181 @@
     border: 1px solid #334155;
 }
 
-/* Player 트리거 (LOBBY 헤더의 클릭 가능 텍스트) */
-.profile-trigger {
-    margin: 0;
-    cursor: pointer;
-    transition: color 0.2s;
-    user-select: none;
-}
-
-.profile-trigger:hover {
+/* ============================== */
+/* Player 프로필 버튼 (헤더)        */
+/* ============================== */
+.profile-btn {
+    background: linear-gradient(135deg, #1e3a5f, #0f1e30);
+    border: 1px solid #38bdf8;
     color: #f1f5f9;
-}
-
-.profile-trigger .player-name {
-    color: #38bdf8;
-    font-weight: bold;
-}
-
-/* Profile 모달 */
-.profile-modal {
-    max-width: 440px;
-}
-
-.profile-header {
-    display: flex;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+    font-weight: 600;
+    transition: all 0.2s ease;
+    display: inline-flex;
     align-items: center;
-    gap: 1rem;
-    padding-bottom: 1.25rem;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    box-shadow: 0 2px 8px rgba(56, 189, 248, 0.15);
+    font-family: inherit;
+}
+
+.profile-btn:hover {
+    background: linear-gradient(135deg, #2563eb, #1e40af);
+    border-color: #60a5fa;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(56, 189, 248, 0.45);
+}
+
+.profile-btn:active {
+    transform: translateY(0);
+}
+
+.profile-btn .player-name {
+    color: #38bdf8;
+    font-weight: 800;
+    transition: color 0.2s ease;
+}
+
+.profile-btn:hover .player-name {
+    color: #ffffff;
+}
+
+.profile-btn .profile-icon {
+    font-size: 1.05rem;
+}
+
+/* ============================== */
+/* 프로필 모달 — 가시성 개선        */
+/* ============================== */
+/* GamePage.css의 .modal-content(흰색)와 클래스명 충돌 회피 — modal-content 미사용 */
+.profile-modal {
+    background-color: #1e293b;
+    color: #f1f5f9;
+    text-align: left;
+    padding: 2rem;
+    border-radius: 1rem;
+    border: 1px solid #334155;
+    width: 100%;
+    max-width: 420px;
+    box-sizing: border-box;
+}
+
+.profile-modal-header {
+    text-align: center;
     margin-bottom: 1.5rem;
-    border-bottom: 1px solid #334155;
 }
 
 .profile-avatar {
-    width: 56px;
-    height: 56px;
+    width: 64px;
+    height: 64px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
-    display: flex;
+    background: linear-gradient(135deg, #38bdf8, #2563eb);
+    display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 1.6rem;
+    font-size: 1.75rem;
     font-weight: 900;
-    color: #0f172a;
-    flex-shrink: 0;
+    color: #fff;
+    margin-bottom: 0.75rem;
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.4);
 }
 
-.profile-name-block {
-    display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
-    min-width: 0;
-}
-
-.profile-name-label {
-    font-size: 0.7rem;
-    color: #64748b;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-}
-
-.profile-name-value {
-    font-size: 1.35rem;
-    font-weight: 900;
+.profile-name {
+    font-size: 1.5rem;
+    font-weight: 800;
     color: #f1f5f9;
-    word-break: break-all;
+    margin: 0;
+}
+
+.profile-winrate-section {
+    background-color: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.profile-winrate-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 0.5rem;
+}
+
+.profile-winrate-label {
+    color: #94a3b8;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.profile-winrate-value {
+    font-size: 1.75rem;
+    font-weight: 800;
+    color: #fbbf24;
+}
+
+.profile-winrate-bar {
+    height: 10px;
+    background-color: #334155;
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.profile-winrate-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #fbbf24, #f59e0b);
+    border-radius: 5px;
+    transition: width 0.6s ease;
+}
+
+.profile-winrate-meta {
+    color: #94a3b8;
+    font-size: 0.8rem;
+    margin-top: 0.5rem;
+    text-align: right;
 }
 
 .profile-stats-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.75rem;
+    margin-bottom: 1.5rem;
 }
 
-.stat-card {
+.profile-stat-card {
     background-color: #0f172a;
     border: 1px solid #334155;
     border-radius: 0.75rem;
-    padding: 0.9rem 1rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-}
-
-.stat-card-label {
-    font-size: 0.7rem;
-    color: #94a3b8;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-}
-
-.stat-card-value {
-    font-size: 1.65rem;
-    font-weight: 900;
-    line-height: 1.1;
-}
-
-.stat-card.winrate .stat-card-value { color: #fbbf24; }
-.stat-card.games   .stat-card-value { color: #38bdf8; }
-.stat-card.max     .stat-card-value { color: #f87171; }
-.stat-card.min     .stat-card-value { color: #4ade80; }
-
-.profile-meta {
-    margin-top: 1.25rem;
-    padding-top: 1rem;
-    border-top: 1px solid #334155;
-    font-size: 0.8rem;
-    color: #64748b;
+    padding: 1rem;
     text-align: center;
+    transition: border-color 0.2s ease;
 }
 
-.profile-close-btn {
-    width: 100%;
-    margin-top: 1.5rem;
-    padding: 0.8rem;
+.profile-stat-card:hover {
+    border-color: #38bdf8;
 }
+
+.profile-stat-icon {
+    font-size: 1.25rem;
+    margin-bottom: 0.25rem;
+}
+
+.profile-stat-label {
+    color: #94a3b8;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.4rem;
+}
+
+.profile-stat-value {
+    font-size: 1.4rem;
+    font-weight: 800;
+}
+
+.profile-stat-value.high { color: #ef4444; }
+.profile-stat-value.low  { color: #22c55e; }

@@ -1,5 +1,4 @@
 using Card.Api.Domain;
-using Card.Api.GameLogic;
 using System.Collections.Concurrent;
 
 namespace Card.Api.Services;
@@ -43,6 +42,16 @@ public class GameRoomService
 
             // 🔴 [수정 핵심] 기존에 '이름'이 같은 플레이어가 있는지 먼저 찾습니다.
             var existingPlayer = room.Players.FirstOrDefault(p => p.Name == nickname);
+
+            // 🔐 비밀번호 검증: 방에 비밀번호가 설정되어 있으면 일치해야 입장 가능
+            // existingPlayer(새로고침/재접속) 케이스에도 동일 적용 — 비밀번호 우회 방지
+            if (!string.IsNullOrEmpty(room.Password))
+            {
+                if (password != room.Password)
+                {
+                    throw new UnauthorizedAccessException("비밀번호가 일치하지 않습니다.");
+                }
+            }
 
             if (existingPlayer != null)
             {
@@ -143,7 +152,7 @@ public class GameRoomService
     // 라운드 초기화 (덱 생성 -> 셔플 -> 5장씩 분배하며 덱에서 제거)
     private void SetupRound(GameRoom room)
     {
-        var newDeck = CreateNewDeck();
+        var newDeck = CreateNewDeck(room.JokerCount, room.CardMode);
         room.Deck = newDeck.OrderBy(a => Guid.NewGuid()).ToList();
         
         // ✅ 라운드 시작 시 우승자 정보 리셋
@@ -218,49 +227,6 @@ public class GameRoomService
         player.Hand.Add(card);
     }
 
-    public void ActingMyTurn(GameRoom room, string playerId, TurnActionType actionType, List<int>? discardIndexes = null)
-    {
-        if (room.IsFinished) return;
-        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
-        if (player == null) return;
-
-        switch (actionType)
-        {
-            case TurnActionType.DiscardOne:
-                if (discardIndexes != null) DiscardOne(room, player, discardIndexes);
-                break;
-            case TurnActionType.DiscardPairAndOne:
-                if (discardIndexes != null) DiscardPairAndOne(room, player, discardIndexes);
-                break;
-            case TurnActionType.DeclareWin:
-                if (GameRule.CheckSixCardImmediateFinish(room, player))
-                    DeclareWin(room, player, WinReason.SixCardImmediate);
-                break;
-        }
-    }
-
-    private bool DiscardOne(GameRoom room, Player player, List<int> indexes)
-    {
-        if (indexes.Count != 1) return false;
-        DiscardCards(room, player, indexes);
-        EndTurn(room);
-        return true;
-    }
-
-    private bool DiscardPairAndOne(GameRoom room, Player player, List<int> indexes)
-    {
-        if (indexes.Count != 3) return false;
-        var cards = indexes.Select(i => player.Hand[i]).ToList();
-        if (!cards.GroupBy(c => c.Rank).Any(g => g.Count() == 2)) return false;
-
-        DiscardCards(room, player, indexes);
-        if (player.Hand.Count == 2 && player.Hand[0].Rank == player.Hand[1].Rank)
-            player.IsWaitingFinalWin = true;
-
-        EndTurn(room);
-        return true;
-    }
-
     // 수정된 승리 선언 (족보 검증 포함)
     public bool DeclareWin(GameRoom room, Player winner, WinReason reason)
     {
@@ -289,7 +255,7 @@ public class GameRoomService
             .ToList();
 
         // 🔴 절대 winner.Hand를 넘기지 말 것
-        var check = CheckWinCondition(handForCheck);
+        var check = CheckWinCondition(handForCheck, room.CardMode);
         if (reason == WinReason.ManualDeclare && !check.isValid) return false;
 
         // 2. 라운드 종료 정보 설정
@@ -330,9 +296,8 @@ public class GameRoomService
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null) return;
 
-        // 턴 및 카드 수 검증 (3장 또는 6장일 때만 가능)
-        // 사용자님의 기존 로직 스타일: 현재 턴인 플레이어가 카드를 뽑은 상태인지 확인
-        if (room.CurrentTurnPlayerId == player.PlayerId && (player.Hand.Count == 3))
+        // 턴 및 카드 수 검증 (카드를 뽑아 손패가 3장 또는 6장일 때만 가능)
+        if (room.CurrentTurnPlayerId == player.PlayerId && (player.Hand.Count == 3 || player.Hand.Count == 6))
         {
             room.IsStopDeclared = true;
             room.StopCallerId = player.PlayerId;
@@ -342,23 +307,46 @@ public class GameRoomService
         }
     }
 
-    public void DeclarePung(string roomId, string playerId)
+    public bool DeclarePung(string roomId, string playerId)
     {
         var room = GetRoom(roomId);
-        if (room == null) return;
+        if (room == null || room.IsRoundEnded || room.IsFinished) return false;
+        if (room.LastDiscardedCard == null) return false;
 
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
-        if (player == null) return;
+        if (player == null) return false;
 
-        // 1. '뻥' 선언 상태 변경 (필요 시 Room 클래스에 IsPungActive 등 추가)
-        // 여기서는 간단히 마지막 액션 정보를 업데이트하거나 
-        // 즉시 카드를 지급하는 로직을 넣습니다.
+        // 자기 턴에 자기가 낸 카드로 뻥은 불가
+        if (room.LastActorPlayerId == playerId) return false;
 
-        // 예시: 뻥을 하면 현재 턴을 뻥 선언자에게 강제로 넘기는 경우
+        // 손패 검증: 마지막 버려진 카드와 같은 랭크의 페어를 만들 수 있어야 함
+        if (!CanDeclarePung(player, room.LastDiscardedCard)) return false;
+
         room.CurrentTurnPlayerId = playerId;
-
-        // 2. 로그 기록 (디버깅용)
         Console.WriteLine($"[PUNG] Room: {roomId}, Player: {player.Name} declared Pung!");
+        return true;
+    }
+
+    // 뻥 선언 자격 검증 (Hub.CheckCanIntercept와 동일 규칙)
+    private static bool CanDeclarePung(Player player, PlayingCard playedCard)
+    {
+        // 3.1: 손패 2장이 페어(또는 조커 포함)이고 버려진 카드와 매치
+        if (player.Hand.Count == 2)
+        {
+            bool isPair = player.Hand[0].Rank == player.Hand[1].Rank || player.Hand.Any(IsJoker);
+            bool matchesPlayed = player.Hand.Any(c => c.Rank == playedCard.Rank) || IsJoker(playedCard);
+            if (isPair && matchesPlayed) return true;
+        }
+
+        // 뻥 룰: 손패 5장이고 같은 랭크 + 조커 합쳐 2장 이상
+        if (player.Hand.Count == 5)
+        {
+            int matchingRank = player.Hand.Count(c => c.Rank == playedCard.Rank);
+            int jokers = player.Hand.Count(IsJoker);
+            if (matchingRank + jokers >= 2) return true;
+        }
+
+        return false;
     }
 
     // STOP 전용 종료 처리
@@ -461,7 +449,7 @@ public class GameRoomService
         room.DiscardPile.Clear();
 
         // 새 카드 분배 (CreateNewDeck은 덱을 섞어서 반환한다고 가정)
-        var deck = CreateNewDeck(); 
+        var deck = CreateNewDeck(room.JokerCount, room.CardMode);
         foreach (var player in room.Players)
         {
             player.Hand = deck.Take(5).ToList(); 
@@ -478,29 +466,13 @@ public class GameRoomService
                                 : nextFirstPlayer;
     }
 
-    // 다음 라운드를 위해 카드와 덱만 초기화하는 메서드
-    private void PrepareNextRound(GameRoom room)
-    {
-        var newDeck = CreateNewDeck();
-        room.Deck = newDeck.OrderBy(a => Guid.NewGuid()).ToList();
-        
-        foreach (var p in room.Players)
-        {
-            p.Hand.Clear();
-            p.IsWaitingFinalWin = false;
-        }
-
-        CardDealer.DealInitialHands(room.Players, room.Deck, 5);
-        room.CurrentTurnPlayerId = room.Players[0].PlayerId;
-        room.LastDiscardedCard = null;
-        room.DiscardPile.Clear();
-        // IsStarted는 true 유지, IsFinished는 false 유지
-    }
-
     // 승리 조건 체크 핵심 로직
     // 룰에 따른 승리 조건 체크 (패가 6장일 때 호출)
-    public (bool isValid, string winType, int scoreValue) CheckWinCondition(List<PlayingCard> hand)
+    // cardMode에 따라 max rank(13/12)와 HighSum 임계값(68/65)이 달라짐
+    public (bool isValid, string winType, int scoreValue) CheckWinCondition(List<PlayingCard> hand, CardMode cardMode = CardMode.Trump)
     {
+        int maxRank = cardMode == CardMode.Hwatu ? 12 : 13;
+        int highSumThreshold = cardMode == CardMode.Hwatu ? 65 : 68;
         if (hand == null || hand.Count < 6) return (false, "None", 0);
 
         // 조커 판정 기준 통일 (Rank가 Joker, JK, Joker1, Joker2 중 하나면 조커로 인정)
@@ -509,12 +481,12 @@ public class GameRoomService
         var sortedRanks = normalCards.Select(c => GetRankValue(c.Rank)).OrderBy(n => n).ToList();
 
         // 스트레이트 체크
-        var (isStraight, straightSum) = GetStraightResult(sortedRanks, jokerCount);
+        var (isStraight, straightSum) = GetStraightResult(sortedRanks, jokerCount, maxRank);
         if (isStraight) return (true, "스트레이트", -straightSum);
 
-        // HighSum 체크 (조커 = 13점)
-        int totalHighSum = sortedRanks.Sum() + (jokerCount * 13);
-        if (totalHighSum >= 68) return (true, "68-", -totalHighSum);
+        // HighSum 체크 (조커 = maxRank점)
+        int totalHighSum = sortedRanks.Sum() + (jokerCount * maxRank);
+        if (totalHighSum >= highSumThreshold) return (true, $"{highSumThreshold}-", -totalHighSum);
 
         // LowSum + (4+2)
         int LowSumGroup = sortedRanks.Sum() + (jokerCount * 1);
@@ -537,16 +509,17 @@ public class GameRoomService
     }
 
     // 스트레이트 여부와 "실제 완성된 숫자의 합"을 반환하는 보조 메서드
-    private (bool isStraight, int sum) GetStraightResult(List<int> ranks, int jokers)
+    // maxRank: Trump=13, Hwatu=12
+    private (bool isStraight, int sum) GetStraightResult(List<int> ranks, int jokers, int maxRank = 13)
     {
         if (ranks.Count + jokers < 6) return (false, 0);
-        
+
         var distinctRanks = ranks.Distinct().OrderBy(n => n).ToList();
         int maxStraightSum = 0;
         bool foundAnyStraight = false;
 
-        // 가능한 모든 시작점 확인 (A(1)부터 K(13)까지)
-        for (int start = 1; start <= 13 - 6 + 1; start++)
+        // 가능한 모든 시작점 확인 (1부터 maxRank까지, 6장 연속 필요)
+        for (int start = 1; start <= maxRank - 6 + 1; start++)
         {
             int usedJokers = 0;
             int currentSum = 0;
@@ -794,26 +767,13 @@ public class GameRoomService
         CheckAndEndFullGame(room);
     }
 
-    private void ApplyInterceptionWin(GameRoom room, Player winner, string loserId, int penalty)
-    {
-        room.IsRoundEnded = true;
-        room.WinnerName = winner.Name;
-        winner.Score = 0;
-        
-        var loser = room.Players.First(p => p.PlayerId == loserId);
-        loser.Score = CalculateLoserScore(loser.Hand) + penalty;
-        
-        // 나머지 인원 점수 계산 후 라운드 종료
-    }
-
     // 플레이어의 패가 2장일 때 세트(Pair)인지 판별하는 로직
     public bool IsWaitingWinCondition(Player player)
     {
         if (player.Hand.Count != 2) return false;
 
         // 조커가 1장이라도 포함되어 있다면, 나머지 1장이 무엇이든 "같은 카드 2장"으로 간주
-        bool hasJoker = player.Hand.Last().Rank == "Joker" || player.Hand.Last().Rank == "JK" || 
-                        player.Hand.First().Rank == "Joker" || player.Hand.First().Rank == "JK";
+        bool hasJoker = player.Hand.Any(IsJoker);
 
         // 조커가 없더라도 두 카드의 숫자가 같으면 세트
         bool isSameRank = player.Hand[0].Rank == player.Hand[1].Rank;
@@ -821,7 +781,8 @@ public class GameRoomService
         return hasJoker || isSameRank;
     }
 
-    private bool IsJoker(PlayingCard card)
+    // 조커 식별 단일 진입점 — Joker/JK/Joker1/Joker2 (case-insensitive)
+    public static bool IsJoker(PlayingCard card)
     {
         if (card == null || string.IsNullOrEmpty(card.Rank)) return false;
         string r = card.Rank.ToUpper();
@@ -1019,29 +980,6 @@ public class GameRoomService
         }
     }
 
-    public void EndTurn(GameRoom room)
-    {
-        if (room.IsFinished) return;
-
-        var currentPlayer = room.Players
-            .FirstOrDefault(p => p.PlayerId == room.CurrentTurnPlayerId);
-
-        if (currentPlayer == null) return;
-
-        // ✅ 턴을 '완료'했으므로 여기서 증가
-        currentPlayer.RoundTurnCount++;
-
-        var currentIndex = room.Players
-            .FindIndex(p => p.PlayerId == room.CurrentTurnPlayerId);
-
-        if (currentIndex == -1) currentIndex = 0;
-
-        var nextIndex = (currentIndex + 1) % room.Players.Count;
-        room.CurrentTurnPlayerId = room.Players[nextIndex].PlayerId;
-
-        StartTurn(room);
-    }
-
 
     public void DiscardCards(GameRoom room, Player player, List<int> handIndexes)
     {
@@ -1056,35 +994,40 @@ public class GameRoomService
         }
     }
 
-    private List<PlayingCard> CreateNewDeck()
+    private List<PlayingCard> CreateNewDeck(int jokerCount = 1, CardMode cardMode = CardMode.Trump)
     {
         var deck = new List<PlayingCard>();
         string[] suits = { "♠", "♥", "♦", "♣" };
-        // A(1)부터 K(13)까지 정확히 정의
-        string[] ranks = { "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K" };
+        // Trump: 1~13 (A~K), Hwatu: 1~12 (K 제외)
+        string[] ranks = cardMode == CardMode.Hwatu
+            ? new[] { "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q" }
+            : new[] { "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K" };
 
-        // 1. 일반 카드 생성 (4문양 * 13장 = 52장)
+        // 1. 일반 카드 생성 (Trump: 52장, Hwatu: 48장)
         foreach (var suit in suits)
         {
             foreach (var rank in ranks)
             {
-                deck.Add(new PlayingCard 
-                { 
-                    Suit = suit, 
-                    Rank = rank, 
-                    Color = (suit == "♥" || suit == "♦") ? "Red" : "Black" 
+                deck.Add(new PlayingCard
+                {
+                    Suit = suit,
+                    Rank = rank,
+                    Color = (suit == "♥" || suit == "♦") ? "Red" : "Black"
                 });
             }
         }
 
-        // 2. 조커 딱 1장만 추가 (합계 53장)
-        // 기존에 Joker1, Joker2를 넣는 루프가 있었다면 모두 지우고 이것만 남기세요.
-        deck.Add(new PlayingCard 
-        { 
-            Suit = "Joker", 
-            Rank = "Joker", 
-            Color = "Black" 
-        });
+        // 2. 조커는 방 옵션(0/1/2)에 따라 추가
+        int clampedJokers = Math.Clamp(jokerCount, 0, 2);
+        for (int i = 0; i < clampedJokers; i++)
+        {
+            deck.Add(new PlayingCard
+            {
+                Suit = "Joker",
+                Rank = "Joker",
+                Color = "Black"
+            });
+        }
 
         // 덱 셔플 로직
         Random rnd = new Random();
@@ -1128,9 +1071,9 @@ public class GameRoomService
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null) return room;
 
-        var cardToPlay = player.Hand.FirstOrDefault(c => 
-            (c.Suit == card.Suit && c.Rank == card.Rank) || 
-            (c.Rank == "Joker" && card.Rank == "Joker"));
+        var cardToPlay = player.Hand.FirstOrDefault(c =>
+            (c.Suit == card.Suit && c.Rank == card.Rank) ||
+            (IsJoker(c) && IsJoker(card)));
         
         if (cardToPlay != null)
         {
@@ -1165,29 +1108,6 @@ public class GameRoomService
         }
         
         return room;
-    }
-
-    // 족보 체크 및 점수 계산 메서드 (GameRoomService 내부)
-    public int CalculateFinalScore(List<PlayingCard> hand, bool isWinner)
-    {
-        // 조커를 제외한 숫자 리스트 (Joker는 어떤 숫자로든 변신 가능)
-        var jokers = hand.Count(c => c.Rank == "Joker1" || c.Rank == "Joker2");
-        var numbers = hand.Where(c => c.Rank != "Joker1" && c.Rank != "Joker2")
-                        .Select(c => int.Parse(c.Rank)).OrderBy(n => n).ToList();
-
-        if (isWinner) {
-            // 승리자 감점 로직 (여기에 2.1 ~ 2.6 로직 구현)
-            // 예: 2.2 (4장, 2장 같은 카드인 경우) -100점
-            // 이 부분은 복잡한 조합 최적화 로직이 들어가야 하므로 승리 선언 시 별도 체크
-            return 0; // 기본 반환값 (실제 로직은 승리 선언 시점에 처리)
-        } else {
-            // 패배자 점수 합산 로직
-            // 같은 카드 3장 이상 제외 로직 포함
-            var groups = numbers.GroupBy(n => n).Where(g => g.Count() < 3);
-            int score = 0;
-            foreach(var g in groups) score += g.Key * g.Count();
-            return score;
-        }
     }
 
     private int GetRankValue(string rank)
@@ -1232,7 +1152,7 @@ public class GameRoomService
         
         // 기권 시 전광판만 띄움 (IsStarted는 유지하여 아직 GamePage에 머물게 함)
         room.IsFinished = true;
-        room.WinnerName = surrenderPlayer != null ? $"{surrenderPlayer.Name} 기권" : "게임 종료";
+        room.WinnerName = surrenderPlayer != null ? $"{surrenderPlayer.Name} (기권)" : "게임 종료";
         
         // 요청하신 대로 패 점수 계산 없이 현재 TotalScore 유지
     }

@@ -16,6 +16,8 @@ interface GameRoom {
     hostPlayerId: string;
     isStarted: boolean;
     maxRounds: number; // 서버에서 받아올 라운드 설정값
+    jokerCount?: number; // 0, 1, 2 (서버 기본값 1)
+    cardMode?: number;   // 0=Trump, 1=Hwatu (서버 기본값 0)
     IsStarted?: boolean; // 서버가 대문자로 줄 경우 대비
 }
 
@@ -29,8 +31,16 @@ const RoomPage: React.FC = () => {
         const initRoom = async () => {
             const isConnected = await ensureConnection();
             if (isConnected && roomId) {
-                // 방 입장 시도
-                await connection.invoke("JoinRoom", roomId, null);
+                // 방 입장 시도 — 새로고침 시 sessionStorage에 저장된 비밀번호 사용
+                const savedPwd = sessionStorage.getItem(`room_pwd_${roomId}`) || "";
+                try {
+                    await connection.invoke("JoinRoom", roomId, savedPwd === "" ? null : savedPwd);
+                } catch (err: any) {
+                    // 비밀번호 만료 등으로 재입장 실패 시 로비로 복귀
+                    alert(err?.message ?? "방 재입장 실패");
+                    sessionStorage.removeItem(`room_pwd_${roomId}`);
+                    navigate('/lobby');
+                }
             }
         };
 
@@ -78,12 +88,30 @@ const RoomPage: React.FC = () => {
     // 방장이 버튼을 누를 때 호출되는 함수
     const handleRoundChange = async (rounds: number) => {
         if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
-        
+
         try {
             // 🔴 서버에 설정 변경 요청
             await connection.invoke("UpdateRoomSettings", roomId, rounds);
         } catch (err) {
             console.error("라운드 설정 변경 실패:", err);
+        }
+    };
+
+    const handleJokerChange = async (count: number) => {
+        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        try {
+            await connection.invoke("UpdateJokerCount", roomId, count);
+        } catch (err) {
+            console.error("조커 갯수 변경 실패:", err);
+        }
+    };
+
+    const handleCardModeChange = async (mode: number) => {
+        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        try {
+            await connection.invoke("UpdateCardMode", roomId, mode);
+        } catch (err) {
+            console.error("카드 모드 변경 실패:", err);
         }
     };
 
@@ -121,6 +149,10 @@ const RoomPage: React.FC = () => {
     const isStarted = room.isStarted ?? (room as any).IsStarted // 대소문자 혼용 방지
     // 🔴 현재 선택된 라운드는 서버 데이터(room.maxRounds)를 기준으로 함
     const currentRounds = room.maxRounds || 1;
+    // 조커 갯수: 서버에서 받은 값(camelCase/PascalCase 모두 대응), 미설정시 기본 1
+    const currentJokerCount = room.jokerCount ?? (room as any).JokerCount ?? 1;
+    // 카드 모드: 0=Trump, 1=Hwatu (기본 Trump)
+    const currentCardMode = room.cardMode ?? (room as any).CardMode ?? 0;
 
     return (
         <div className="room-container">
@@ -146,6 +178,46 @@ const RoomPage: React.FC = () => {
                             }}
                         >
                             {r}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="section-title">조커 갯수</div>
+                <div className="round-selector">
+                    {[0, 1, 2].map((c) => (
+                        <button
+                            key={c}
+                            disabled={!isHost}
+                            onClick={() => handleJokerChange(c)}
+                            className={`round-btn ${currentJokerCount === c ? 'active' : ''}`}
+                            style={{
+                                cursor: isHost ? 'pointer' : 'not-allowed',
+                                opacity: isHost || currentJokerCount === c ? 1 : 0.6
+                            }}
+                        >
+                            {c}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="section-title">카드 모드</div>
+                <div className="round-selector">
+                    {[
+                        { value: 0, label: '트럼프 (1~13)' },
+                        { value: 1, label: '화투 (1~12)' }
+                    ].map((m) => (
+                        <button
+                            key={m.value}
+                            disabled={!isHost}
+                            onClick={() => handleCardModeChange(m.value)}
+                            className={`round-btn ${currentCardMode === m.value ? 'active' : ''}`}
+                            style={{
+                                cursor: isHost ? 'pointer' : 'not-allowed',
+                                opacity: isHost || currentCardMode === m.value ? 1 : 0.6,
+                                flex: 1
+                            }}
+                        >
+                            {m.label}
                         </button>
                     ))}
                 </div>
