@@ -28,4 +28,7 @@ public class Player
     public int TotalScore { get; set; } = 0;
     public int RoundTurnCount { get; set; } = 0;
     public bool AllowNaturalBagaji { get; set; } = true;
+
+    // AI/봇 플레이어 여부 — 방장이 추가, 게임 시작 시 BangPlayer.IsBot으로 전파
+    public bool IsBot { get; set; } = false;
 }

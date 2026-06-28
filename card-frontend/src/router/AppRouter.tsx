@@ -5,6 +5,8 @@ import LobbyPage from "../pages/LobbyPage";
 import SignupPage from "../pages/SignupPage";
 import RoomPage from "../pages/RoomPage";
 import GamePage from "../pages/GamePage";
+import OmokPage from "../pages/OmokPage";
+import BangPage from "../pages/BangPage";
 import RulePage from "../pages/RulePage";
 import { useAuth } from "../auth/authContext";
 
@@ -35,6 +37,18 @@ export default function AppRouter() {
                 <Route
                     path="/game/:roomId"
                     element={isAuth ? <GamePage /> : <Navigate to= "/login" replace />}
+                />
+
+                {/* ⚫ 오목 게임 화면 */}
+                <Route
+                    path="/omok/:roomId"
+                    element={isAuth ? <OmokPage /> : <Navigate to="/login" replace />}
+                />
+
+                {/* 🤠 뱅 게임 화면 */}
+                <Route
+                    path="/bang/:roomId"
+                    element={isAuth ? <BangPage /> : <Navigate to="/login" replace />}
                 />
 
                 {/* fallback */}

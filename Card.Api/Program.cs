@@ -82,11 +82,17 @@ builder.Services.AddDbContext<GameDbContext>(options =>
     options.UseSqlite($"Data Source={dbPath}");
 });
 
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(options =>
+{
+    // Development 환경에서만 자세한 에러 메시지 클라이언트로 송신
+    options.EnableDetailedErrors = builder.Environment.IsDevelopment();
+});
 builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<PasswordHashService>();
 builder.Services.AddSingleton<GameRoomService>();
+builder.Services.AddSingleton<OmokGameService>();
+builder.Services.AddSingleton<BangGameService>();
 builder.Services.AddSingleton<PlayerConnectionService>();
 
 var app = builder.Build();

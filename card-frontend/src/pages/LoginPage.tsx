@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "../auth/useAuth";
+import { useAuth } from "../auth/authContext";
 import "../css/LoginPage.css";
 
 export default function LoginPage() {
@@ -30,11 +30,11 @@ export default function LoginPage() {
     return (
         <div className="login-container">
             <div className="login-card">
-                <h1 className="login-title">CARD GAME</h1>
+                <h1 className="login-title">카드 게임</h1>
 
                 <form onSubmit={handleLogin}>
                     <div className="form-group">
-                        <label className="form-label">Nickname</label>
+                        <label className="form-label">닉네임</label>
                         <input
                             type="text"
                             value={nickname}
@@ -47,7 +47,7 @@ export default function LoginPage() {
                     </div>
 
                     <div className="form-group">
-                        <label className="form-label">Password</label>
+                        <label className="form-label">비밀번호</label>
                         <input
                             type="password"
                             value={password}
@@ -69,7 +69,7 @@ export default function LoginPage() {
                         disabled={loading}
                         className="login-submit-btn"
                     >
-                        {loading ? "AUTHENTICATING..." : "LOGIN"}
+                        {loading ? "로그인 중..." : "로그인"}
                     </button>
                 </form>
 
@@ -82,7 +82,7 @@ export default function LoginPage() {
                         onClick={() => navigate("/signup")}
                         className="signup-btn"
                     >
-                        CREATE ACCOUNT
+                        계정 만들기
                     </button>
                 </div>
             </div>

@@ -1,6 +1,5 @@
-import React from "react";
 // GamePage.css를 임포트하되, 아래 스타일 태그로 충돌을 막습니다.
-import "../css/GamePage.css"; 
+import "../css/GamePage.css";
 
 export default function RulePage() {
     const rules = [

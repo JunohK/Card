@@ -12,7 +12,6 @@ public class GameDbContext : DbContext
         : base(options){}
     public DbSet<User> Users { get; set; } = null!;
     public DbSet<GameCard> Cards => Set<GameCard>();
-    public DbSet<Deck> Decks => Set<Deck>();
-    public DbSet<Match> Matches => Set<Match>();
-    public DbSet<MatchPlayer> MatchPlayers => Set<MatchPlayer>();
+    // Deck, Match, MatchPlayer DbSet 제거 — 모델 코드 제거에 맞춰 등록 해제.
+    // DB 테이블은 남아있음(orphan). 차후 EF 마이그레이션으로 drop 필요.
 }

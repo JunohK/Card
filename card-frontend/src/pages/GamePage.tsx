@@ -1,6 +1,9 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { connection } from "../signalr/connection";
+import { connection, setActiveRoom } from "../signalr/connection";
+import { useTurnTimeout } from "../util/useTurnTimeout";
+import { playSound } from "../sound/sound";
+import { pushHistory } from "../util/gameHistory";
 import "../css/GamePage.css";
 
 const ENEMY_POSITIONS = [
@@ -27,24 +30,32 @@ interface GameState {
 export default function GamePage() {
     const { roomId } = useParams<{ roomId: string }>();
     const navigate = useNavigate();
+
+    // 재접속(네트워크 끊김 자동 재연결) 시 자동 재입장할 방 등록
+    useEffect(() => {
+        setActiveRoom(roomId ?? null);
+        return () => setActiveRoom(null);
+    }, [roomId]);
+
     const [game, setGame] = useState<any>(null);
     const [showRoundResult, setShowRoundResult] = useState(false);
     const [showDiscardModal, setShowDiscardModal] = useState(false);
+    const [showScoreHistory, setShowScoreHistory] = useState(false);
     const [lastDrawnCardKey, setLastDrawnCardKey] = useState<string | null>(null);
     const [input, setInput] = useState("");
-    const [connected, setConnected] = useState(connection.state === "Connected");
+    const [connected] = useState(connection.state === "Connected");
     const [messages, setMessages] = useState<string[]>([]);
-    const [myProfile, setMyProfile] = useState<MyProfile>({ 
-        name: "", 
-        wins: 0, 
-        totalGames: 0, 
-        maxScore: 0, 
-        minScore: 0 
+    const [myProfile, setMyProfile] = useState<MyProfile>({
+        name: "",
+        wins: 0,
+        totalGames: 0,
+        maxScore: 0,
+        minScore: 0
     });
     const [isChatMinimized, setIsChatMinimized] = useState(true); // false로 하면 최소화가 기본값
     const [hasNewMessage, setHasNewMessage] = useState(false);
-    const [winnerHand, setWinnerHand] = useState<any[]>([]);
-    const [winnerName, setWinnerName] = useState<string | null>(null);
+    const [, setWinnerHand] = useState<any[]>([]);
+    const [, setWinnerName] = useState<string | null>(null);
     const [chatWidth, setChatWidth] = useState(260);
     const [chatHeight, setChatHeight] = useState(320);
 
@@ -184,7 +195,7 @@ export default function GamePage() {
 
     const sendMessage = async () => {
         if (!input.trim() || connection.state !== "Connected") return;
-        await connection.invoke("SendChatMessage", input);
+        await connection.invoke("SendRoomChat", roomId, input);
         setInput("");
     };
 
@@ -232,13 +243,23 @@ export default function GamePage() {
             const gameFinished = data.isFinished || data.IsFinished;
 
             if (gameFinished) {
-                setShowRoundResult(false); 
+                setShowRoundResult(false);
                 try {
                     // 서버에 게임 결과 반영 요청
                     await connection.invoke("UpdateGameResult", roomId);
                 } catch (err) {
                     console.error("DB 업데이트 요청 실패:", err);
                 }
+                // 게임 결과 통계 — localStorage
+                const winnerName = data.winnerName || data.WinnerName || "승자 미확정";
+                const winType = data.lastWinType || data.LastWinType || "";
+                const winnerId = data.winnerPlayerId || data.WinnerPlayerId;
+                pushHistory({
+                    mode: "Cards",
+                    winnerName,
+                    detail: winType,
+                    isMyWin: winnerId === myId
+                });
             } else if (roundEnded) {
                 setShowRoundResult(true);
             }
@@ -298,6 +319,7 @@ export default function GamePage() {
                 setWinnerHand(data.WinnerHand || []);
                 setWinnerName(data.WinnerName || null);
                 setShowRoundResult(true);
+                playSound("win");
             });
 
             connection.on("HideResultBoard", onHideResultBoard);
@@ -339,6 +361,7 @@ export default function GamePage() {
 
     const handleExit = () => {
         if (window.confirm("정말 기권하시겠습니까? 전체 게임이 종료되며 대기실로 이동합니다.")) {
+            playSound("resign");
             connection.invoke("GiveUp", roomId).catch(err => console.error("기권 처리 중 오류:", err));
         }
     };
@@ -368,6 +391,14 @@ export default function GamePage() {
         window.open('/rules', '_blank', 'width=600,height=800,noopener,noreferrer');
     };
 
+    // 턴 타임아웃 — 현재 턴 플레이어에 대해 카운트다운 (라운드 진행 중일 때만)
+    const turnSecLeft = useTurnTimeout(
+        roomId,
+        (game?.currentTurnPlayerId ?? game?.CurrentTurnPlayerId) ?? null,
+        !!game && !!(game.isStarted ?? game.IsStarted) && !(game.isFinished ?? game.IsFinished) && !(game.isRoundEnded ?? game.IsRoundEnded),
+        (game?.turnTimeoutSec ?? game?.TurnTimeoutSec) ?? 60
+    );
+
     if (!game || (!game.players && !game.Players)) {
         return (
             <div className="game-container loading-state" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'white', height: '100vh' }}>
@@ -382,6 +413,14 @@ export default function GamePage() {
     const others = players.filter((p: any) => (p.playerId || p.PlayerId) !== myId);
     const currentTurnId = game.currentTurnPlayerId || game.CurrentTurnPlayerId;
     const isMyTurn = currentTurnId === myId;
+    // 본인 차례 시작 알림 사운드 (false → true 전환)
+    const prevIsMyTurnRef = useRef(false);
+    useEffect(() => {
+        if (isMyTurn && !prevIsMyTurnRef.current) {
+            playSound("my-turn");
+        }
+        prevIsMyTurnRef.current = isMyTurn;
+    }, [isMyTurn]);
     const isHost = (game.hostPlayerId || game.HostPlayerId) === myId;
     const deckCount = game.deckCount ?? game.DeckCount ?? 0;
     const lastDiscarded = game.lastDiscardedCard || game.LastDiscardedCard;
@@ -390,15 +429,6 @@ export default function GamePage() {
     const myHand = me?.hand || me?.Hand || [];
     const canDraw = isMyTurn && (myHand.length === 2 || myHand.length === 5);
     const canDiscardOrWin = isMyTurn && (myHand.length === 3 || myHand.length === 6);
-    const isFinished = game.isFinished ?? game.IsFinished;
-
-    /** * 🏆 승리 선언 활성화 조건 (최종 보강 버전)
-     * 1. 내 턴이어야 함
-     * 2. 내 턴 횟수가 2회 이상이거나, 모든 플레이어가 최소 1회 이상 행동했어야 함
-     * 3. 만약 서버 데이터가 아직 연동되지 않았다면(0일 경우), 최소 10장 이상의 카드가 버려진 후에 활성화 (안전 장치)
-     */
-    const myTurnCount = me?.roundTurnCount ?? me?.RoundTurnCount ?? 0;
-    const allPlayersActed = players.every((p: any) => (p.roundTurnCount ?? p.RoundTurnCount ?? 0) >= 1);
 
     // 최종 판단 로직
     const checkCanDeclareWin = () => {
@@ -505,19 +535,13 @@ export default function GamePage() {
 
     const canStop = checkCanStop();
 
-    /** 🔥 뻥 버튼 클릭 핸들러 */
-    const handlePung = () => {
-        // 뻥 버튼을 누를 수 있는 조건이 있다면 체크 (예: 내 차례가 아닐 때도 가능한지 등)
-        // if (!canPung) return; 
-
-        if (window.confirm("뻥을 선언하시겠습니까? 성공하면 상대의 차례를 뺏어옵니다!")) {
-            connection.invoke("DeclarePung", roomId)
-                .catch(err => console.error("뻥 호출 실패:", err));
-        }
-    };
-
 return (
         <div className={`game-container ${isMyTurn ? "my-turn-flash" : ""}`} style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
+            {turnSecLeft != null && (
+                <div style={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, background: turnSecLeft <= 10 ? '#dc2626' : 'rgba(30,41,59,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 8, fontWeight: 'bold', fontSize: 13 }}>
+                    ⏱ {turnSecLeft}s
+                </div>
+            )}
             <style>{`
                 @keyframes fadeInModal {
                     0% { opacity: 0; }
@@ -592,7 +616,12 @@ return (
                     <span className="set-info">ROUND {game.currentRound || game.CurrentRound}</span>
                     <span className="room-info">ROOM: {roomId}</span>
                 </div>
-                <div className="player-scores">
+                <div
+                    className="player-scores"
+                    onClick={() => setShowScoreHistory(true)}
+                    style={{ cursor: 'pointer' }}
+                    title="라운드별 점수 히스토리 보기"
+                >
                     {players.map((p: any) => (
                         <span key={p.playerId || p.PlayerId} className={`score-item ${(p.playerId || p.PlayerId) === myId ? "my-score" : ""} ${currentTurnId === (p.playerId || p.PlayerId) ? "turn-highlight" : ""}`}>
                             {p.name || p.Name}: {p.totalScore ?? p.TotalScore ?? 0}점
@@ -614,7 +643,10 @@ return (
                                     cursor: canDraw ? 'pointer' : 'default'
                                 }}
                                 onClick={() => {
-                                    if(canDraw) connection.invoke("DrawCard", roomId);
+                                    if (canDraw) {
+                                        playSound("draw-card");
+                                        connection.invoke("DrawCard", roomId);
+                                    }
                                 }}>
                                 <span className="label">DECK</span>
                                 <div className="count">{deckCount}</div>
@@ -660,7 +692,7 @@ return (
                             {/* 🔥 뻥 버튼 */}
                             <button 
                                 className={`interrupt-btn ${canPung ? 'pung-active' : ''}`} 
-                                onClick={() => { if(canPung) connection.invoke("InterruptDiscard", roomId); }} 
+                                onClick={() => { if (canPung) { playSound("pung"); connection.invoke("InterruptDiscard", roomId); } }}
                                 disabled={!canPung}
                                 style={{ 
                                     padding: '12px 25px', 
@@ -791,7 +823,7 @@ return (
                                     justifyContent: 'space-between', padding: '10px',
                                     boxShadow: '0 4px 8px rgba(0,0,0,0.3)', transition: 'transform 0.1s'
                                 }}
-                                onClick={() => canDiscardOrWin && connection.invoke("PlayCard", roomId, card)}>
+                                onClick={() => { if (canDiscardOrWin) { playSound("play-card"); connection.invoke("PlayCard", roomId, card); } }}>
                                 <span className="rank" style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{rankText}</span>
                                 <span className="suit" style={{ fontSize: '2.2rem', textAlign: 'center' }}>{suitText}</span>
                                 <span className="rank" style={{ fontWeight: 'bold', textAlign: 'right', transform: 'rotate(180deg)', fontSize: '1.1rem' }}>{rankText}</span>
@@ -911,7 +943,7 @@ return (
                 <div className="discard-modal-overlay fade-in-2s" style={{ backgroundColor: 'rgba(0, 0, 0, 0.9)', zIndex: 2000 }}>
                     <div className="discard-modal-content" style={{ textAlign: 'center', border: '2px solid #f1c40f', padding: '40px' }}>
                         <h1 style={{ color: '#f1c40f', fontSize: '2.5rem', marginBottom: '10px' }}>
-                            {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "GIVE UP" : "GAME OVER"}
+                            {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "기권" : "게임 종료"}
                         </h1>
                         
                         <div style={{ marginBottom: '30px', padding: '20px', background: 'rgba(241, 196, 15, 0.1)', borderRadius: '12px' }}>
@@ -972,16 +1004,94 @@ return (
                             </table>
                         </div>
 
-                        <button 
-                            onClick={handleReturnToRoom} 
-                            style={{ padding: '15px 50px', background: '#f1c40f', color: '#000', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
-                        >
-                            확인
-                        </button>
+                        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+                            <button
+                                onClick={handleReturnToRoom}
+                                style={{ padding: '15px 50px', background: '#f1c40f', color: '#000', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                            >
+                                확인
+                            </button>
+                            <button
+                                onClick={() => navigate('/lobby?showStats=1')}
+                                style={{ padding: '15px 25px', background: '#7c3aed', color: 'white', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
+                            >
+                                📊 통계
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
             
+            {showScoreHistory && (() => {
+                const history = game.roundScoreHistory ?? game.RoundScoreHistory ?? [];
+                const playerOrder = players.map((p: any) => ({
+                    id: p.playerId || p.PlayerId,
+                    name: p.name || p.Name
+                }));
+                return (
+                    <div className="discard-modal-overlay" onClick={() => setShowScoreHistory(false)}>
+                        <div className="discard-modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '720px', maxHeight: '85vh', overflowY: 'auto' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                                <h2 style={{ color: '#f1c40f', margin: 0 }}>📊 라운드별 점수 히스토리</h2>
+                                <button onClick={() => setShowScoreHistory(false)} style={{ background: '#e74c3c', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '4px', cursor: 'pointer' }}>닫기</button>
+                            </div>
+
+                            {history.length === 0 ? (
+                                <p style={{ color: '#bdc3c7', textAlign: 'center', padding: '30px' }}>아직 종료된 라운드가 없습니다.</p>
+                            ) : (
+                                <table style={{ width: '100%', color: 'white', borderCollapse: 'collapse' }}>
+                                    <thead>
+                                        <tr style={{ borderBottom: '2px solid #f1c40f' }}>
+                                            <th style={{ padding: '10px', textAlign: 'left' }}>R</th>
+                                            <th style={{ padding: '10px', textAlign: 'left' }}>승자 / 족보</th>
+                                            {playerOrder.map((po: any) => (
+                                                <th key={po.id} style={{ padding: '10px', textAlign: 'center' }}>{po.name}</th>
+                                            ))}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {history.map((entry: any, idx: number) => {
+                                            const round = entry.round ?? entry.Round;
+                                            const winnerName = entry.winnerName ?? entry.WinnerName ?? '-';
+                                            const winType = entry.winType ?? entry.WinType ?? '';
+                                            const scores = entry.scores ?? entry.Scores ?? [];
+
+                                            return (
+                                                <tr key={idx} style={{ borderBottom: '1px solid #333' }}>
+                                                    <td style={{ padding: '10px', fontWeight: 'bold', color: '#f1c40f' }}>R{round}</td>
+                                                    <td style={{ padding: '10px', fontSize: '0.9rem' }}>
+                                                        <div style={{ fontWeight: 'bold' }}>{winnerName}</div>
+                                                        {winType && <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>{winType}</div>}
+                                                    </td>
+                                                    {playerOrder.map((po: any) => {
+                                                        const ps = scores.find((s: any) => (s.playerId ?? s.PlayerId) === po.id);
+                                                        const roundScore = ps?.score ?? ps?.Score ?? 0;
+                                                        const totalScore = ps?.totalScore ?? ps?.TotalScore ?? 0;
+                                                        const scoreColor = roundScore < 0 ? '#22c55e' : (roundScore > 0 ? '#ef4444' : '#94a3b8');
+                                                        return (
+                                                            <td key={po.id} style={{ padding: '10px', textAlign: 'center' }}>
+                                                                <div style={{ color: scoreColor, fontWeight: 'bold' }}>
+                                                                    {roundScore > 0 ? '+' : ''}{roundScore}
+                                                                </div>
+                                                                <div style={{ color: '#bdc3c7', fontSize: '0.75rem' }}>({totalScore})</div>
+                                                            </td>
+                                                        );
+                                                    })}
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            )}
+
+                            <div style={{ marginTop: '15px', fontSize: '0.8rem', color: '#94a3b8', textAlign: 'right' }}>
+                                각 셀: <span style={{ color: '#22c55e' }}>녹색=감점(좋음)</span> · <span style={{ color: '#ef4444' }}>빨강=가점(나쁨)</span> · (괄호=누적)
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
+
             {showDiscardModal && (
                 <div className="discard-modal-overlay" onClick={() => setShowDiscardModal(false)}>
                     <div className="discard-modal-content" onClick={e => e.stopPropagation()}>
