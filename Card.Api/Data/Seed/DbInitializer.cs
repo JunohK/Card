@@ -16,8 +16,10 @@ public static class DbInitializer
     
     public static void Seed(GameDbContext context)
     {
-        // 마이그레이션 적용 (DB 없으면 생성, 있으면 최신 스키마까지 갱신)
-        context.Database.Migrate();
+        // DB 생성 보장 (마이그레이션 검증 없이 현재 모델 기준으로 생성)
+        // 주의: 모델과 마이그레이션 스냅샷이 어긋난 상태(Deck/Match 등 제거 미반영)라
+        // Migrate()를 쓰면 PendingModelChangesWarning으로 시작이 막힘. 정리되기 전까지 EnsureCreated 유지.
+        context.Database.EnsureCreated();
 
         // 이미 카드가 있으면 Seed 하지 않음(중복방지)
         if(context.Cards.Any())
