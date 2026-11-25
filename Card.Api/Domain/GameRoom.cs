@@ -44,15 +44,20 @@ public class GameRoom
 {
     public string RoomId { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
+
+    // 🔒 클라이언트로 직렬화 금지 — 방 목록은 IsLocked(서버 계산)만 노출
+    [System.Text.Json.Serialization.JsonIgnore]
     public string? Password { get; set; }
-    
+
     // Player.cs를 참조하므로 여기서는 리스트만 선언하면 됩니다.
     public List<Player> Players { get; set; } = new();
-    
+
     public string? HostPlayerId { get; set; }
     public bool IsStarted { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    // 🔒 덱 순서는 비공개 (알면 다음 카드 예측 가능) — 클라이언트는 DeckCount만 사용
+    [System.Text.Json.Serialization.JsonIgnore]
     public List<PlayingCard> Deck { get; set; } = new();
     public List<PlayingCard> DiscardPile { get; set; } = new();
     public PlayingCard? LastDiscardedCard { get; set; }
@@ -110,4 +115,14 @@ public class GameRoom
     // Interlocked.CompareExchange로만 접근 — 동시 InterruptDiscard/InterceptWin race 방지용
     [System.Text.Json.Serialization.JsonIgnore]
     public int PungWindowFlag;
+
+    /// <summary>viewer 관점의 직렬화용 뷰 — 다른 플레이어의 손패/뱅 비공개 정보를 마스킹한 얕은 복사본.
+    /// MemberwiseClone 기반이라 새 필드가 추가돼도 자동 포함된다 (수동 프로젝션의 필드 누락 방지).</summary>
+    public GameRoom CreateViewFor(string viewerPlayerId)
+    {
+        var view = (GameRoom)MemberwiseClone();
+        view.Players = Players.Select(p => p.CreateViewFor(viewerPlayerId)).ToList();
+        view.Bang = Bang?.CreateViewFor(viewerPlayerId);
+        return view;
+    }
 }

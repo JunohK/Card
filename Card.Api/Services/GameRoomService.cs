@@ -8,6 +8,31 @@ public partial class GameRoomService
     // 🔑 멀티스레드 환경에서 안전한 방 저장소
     private readonly ConcurrentDictionary<string, GameRoom> _rooms = new();
 
+    // 🔒 방 단위 직렬화 락. 한 방의 상태 변경 액션이 동시에 실행되지 않도록 보장한다.
+    // (lock(room)과 달리 await 구간을 넘어 유지 가능 → SignalR 핸들러의 비동기 처리에 필요)
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _roomLocks = new();
+
+    /// <summary>방 락을 획득하고, Dispose 시 해제하는 releaser를 반환한다.
+    /// 사용법: <c>using (await _roomService.LockRoomAsync(roomId)) { ... }</c></summary>
+    public async Task<IDisposable> LockRoomAsync(string roomId)
+    {
+        var gate = _roomLocks.GetOrAdd(roomId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync();
+        return new Releaser(gate);
+    }
+
+    private sealed class Releaser : IDisposable
+    {
+        private SemaphoreSlim? _gate;
+        public Releaser(SemaphoreSlim gate) => _gate = gate;
+        public void Dispose()
+        {
+            // 락을 잡은 쪽이 참조를 들고 있으므로, 방 삭제로 레지스트리에서 빠져도 안전하게 해제된다.
+            _gate?.Release();
+            _gate = null;
+        }
+    }
+
     /// <summary>
     /// 방 생성: 방 객체만 생성하고 저장소에 등록합니다.
     /// </summary>
@@ -132,7 +157,9 @@ public partial class GameRoomService
             if (room.Players.Count == 0)
             {
                 _rooms.TryRemove(roomId, out _);
-                return true; 
+                // 락 레지스트리에서도 제거(Dispose는 하지 않음 — 현재 락을 잡은 releaser가 안전히 해제하도록).
+                _roomLocks.TryRemove(roomId, out _);
+                return true;
             }
 
             if (room.HostPlayerId == playerId && room.Players.Count > 0)

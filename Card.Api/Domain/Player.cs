@@ -31,4 +31,24 @@ public class Player
 
     // AI/봇 플레이어 여부 — 방장이 추가, 게임 시작 시 BangPlayer.IsBot으로 전파
     public bool IsBot { get; set; } = false;
+
+    // ── 직렬화 뷰 전용 필드 (CreateViewFor에서 설정) ──
+    // 손패 장수 — 다른 플레이어에게는 Hand 대신 이 값만 공개
+    public int HandCount { get; set; }
+    // 바가지 상태(2장 + 같은 숫자 또는 조커 포함) — 손패 내용 대신 파생 불리언만 공개
+    // (기존 UI가 상대 손패를 직접 읽어 표시하던 정보를 보존)
+    public bool IsBagaji { get; set; }
+
+    /// <summary>viewer 관점의 직렬화용 뷰 — 본인이 아니면 손패 내용을 숨긴다.</summary>
+    public Player CreateViewFor(string viewerPlayerId)
+    {
+        var view = (Player)MemberwiseClone();
+        var hand = Hand ?? new List<PlayingCard>();
+        view.HandCount = hand.Count;
+        view.IsBagaji = hand.Count == 2 &&
+            (hand.Any(c => c.Rank == "Joker" || c.Rank == "JK") || hand[0].Rank == hand[1].Rank);
+        if (PlayerId != viewerPlayerId)
+            view.Hand = new List<PlayingCard>();
+        return view;
+    }
 }

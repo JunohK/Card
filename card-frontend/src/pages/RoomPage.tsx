@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { connection, ensureConnection, setActiveRoom } from '../signalr/connection';
+import { getMyPlayerId } from '../auth/authStorage';
 import { useAuth } from '../auth/authContext';
 import '../css/RoomPage.css';
 
@@ -99,7 +100,7 @@ const RoomPage: React.FC = () => {
 
     // 방장이 버튼을 누를 때 호출되는 함수
     const handleRoundChange = async (rounds: number) => {
-        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        if (!roomId || room?.hostPlayerId !== getMyPlayerId()) return;
 
         try {
             // 🔴 서버에 설정 변경 요청
@@ -110,7 +111,7 @@ const RoomPage: React.FC = () => {
     };
 
     const handleJokerChange = async (count: number) => {
-        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        if (!roomId || room?.hostPlayerId !== getMyPlayerId()) return;
         try {
             await connection.invoke("UpdateJokerCount", roomId, count);
         } catch (err) {
@@ -119,7 +120,7 @@ const RoomPage: React.FC = () => {
     };
 
     const handleBangExpansionToggle = async () => {
-        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        if (!roomId || room?.hostPlayerId !== getMyPlayerId()) return;
         const next = !(room.bangUseDodgeCity ?? (room as any).BangUseDodgeCity);
         try {
             await connection.invoke("UpdateBangExpansion", roomId, next);
@@ -129,7 +130,7 @@ const RoomPage: React.FC = () => {
     };
 
     const handleCardModeChange = async (mode: number) => {
-        if (!roomId || room?.hostPlayerId !== connection.connectionId) return;
+        if (!roomId || room?.hostPlayerId !== getMyPlayerId()) return;
         try {
             await connection.invoke("UpdateCardMode", roomId, mode);
         } catch (err) {
@@ -173,7 +174,7 @@ const RoomPage: React.FC = () => {
         );
     }
 
-    const isHost = room.hostPlayerId === connection.connectionId;
+    const isHost = room.hostPlayerId === getMyPlayerId();
     // 🔴 현재 선택된 라운드는 서버 데이터(room.maxRounds)를 기준으로 함
     const currentRounds = room.maxRounds || 1;
     // 조커 갯수: 서버에서 받은 값(camelCase/PascalCase 모두 대응), 미설정시 기본 1
@@ -345,7 +346,7 @@ const RoomPage: React.FC = () => {
                 </div>
                 <div className="player-list">
                     {room.players.map((player) => {
-                        const isMe = player.playerId === connection.connectionId;
+                        const isMe = player.playerId === getMyPlayerId();
                         return (
                             <div 
                                 key={player.playerId} 

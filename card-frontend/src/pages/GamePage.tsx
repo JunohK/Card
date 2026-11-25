@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { connection, setActiveRoom } from "../signalr/connection";
+import { getMyPlayerId } from "../auth/authStorage";
 import { useTurnTimeout } from "../util/useTurnTimeout";
 import { playSound } from "../sound/sound";
 import { pushHistory } from "../util/gameHistory";
@@ -138,7 +139,7 @@ export default function GamePage() {
     // ✅ 에러 메시지 처리를 위한 상태 추가
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-    const myId = connection.connectionId;
+    const myId = getMyPlayerId();
     const prevHandRef = useRef<string[]>([]);
     const isSubscribed = useRef(false);
 
@@ -508,7 +509,8 @@ export default function GamePage() {
         // 2. 패가 2장인 사람 카운트 (본인 포함)
         const playersWithTwoCards = players.filter((p: any) => {
             const pid = p.playerId || p.PlayerId;
-            const handCount = p.hand?.length || p.Hand?.length || 0;
+            // 상대 손패는 마스킹되므로 서버가 내려주는 handCount 사용
+            const handCount = p.handCount ?? p.HandCount ?? p.hand?.length ?? p.Hand?.length ?? 0;
 
             if (pid === myId) {
                 // 나는 현재 3장이지만 뽑기 전에는 2장이었으므로 조건 충족
@@ -739,30 +741,13 @@ return (
                     </div>
 
                     {others.map((player: any, idx: number) => {
-                        // 🟢 바가지 체크 로직 (카드 2장 중 조커 포함 혹은 동일 숫자)
-                        const opponentHand = player.hand || player.Hand || [];
-                        let isBagaji = false;
-
-                        if (opponentHand.length === 2) {
-                            const card1 = opponentHand[0]?.rank || opponentHand[0]?.Rank;
-                            const card2 = opponentHand[1]?.rank || opponentHand[1]?.Rank;
-
-                            const isCard1Joker = card1 === "JK" || card1 === "JOKER" || card1 === "Joker";
-                            const isCard2Joker = card2 === "JK" || card2 === "JOKER" || card2 === "Joker";
-
-                            if (isCard1Joker || isCard2Joker) {
-                                // 조건 1: 한 장이라도 조커면 바가지
-                                isBagaji = true;
-                            } else if (getRankText(card1) === getRankText(card2)) {
-                                // 조건 2: 조커는 없지만 두 카드의 숫자가 같으면 바가지
-                                isBagaji = true;
-                            }
-                        }
+                        // 🟢 바가지 체크 — 상대 손패는 마스킹되어 내려오므로 서버가 계산한 값 사용
+                        const isBagaji = player.isBagaji ?? player.IsBagaji ?? false;
 
                         return (
                             <div key={player.playerId || player.PlayerId} className={`player-box ${currentTurnId === (player.playerId || player.PlayerId) ? 'active-turn' : ''}`} style={{ position: 'absolute', top: ENEMY_POSITIONS[idx]?.top, left: ENEMY_POSITIONS[idx]?.left, transform: 'translate(-50%, -50%)' }}>
                                 <div className="player-name">{player.name || player.Name}</div>
-                                <div className="opponent-card-back">{(player.hand || player.Hand)?.length || 0}</div>
+                                <div className="opponent-card-back">{player.handCount ?? player.HandCount ?? (player.hand || player.Hand)?.length ?? 0}</div>
                                 
                                 {/* 🔴 바가지 표시 추가 */}
                                 {isBagaji && (

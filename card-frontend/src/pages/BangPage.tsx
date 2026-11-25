@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { connection, ensureConnection, setActiveRoom } from "../signalr/connection";
+import { getMyPlayerId } from "../auth/authStorage";
 import { useTurnTimeout } from "../util/useTurnTimeout";
 import { playSound } from "../sound/sound";
 import { pushHistory } from "../util/gameHistory";
@@ -83,6 +84,7 @@ interface BangPlayer {
     health: number;
     maxHealth: number;
     hand: BangCard[];
+    handCount: number; // 서버 마스킹 뷰 — 상대 손패는 내용 대신 장수만 제공
     seatIndex: number;
     weapon?: BangCard | null;
     equipment: BangCard[];
@@ -96,7 +98,7 @@ interface BangState {
     winnerRole?: Role;
     winnerPlayerIds: string[];
     endReason?: string;
-    deck: BangCard[];
+    deckCount: number; // 덱 순서는 비공개 — 서버가 장수만 제공
     discardPile: BangCard[];
     pending?: BangPending;
 }
@@ -400,6 +402,7 @@ export default function BangPage() {
                         suit: pick(c, 'suit', 'Suit'),
                         rank: pick(c, 'rank', 'Rank')
                     })),
+                    handCount: pick(p, 'handCount', 'HandCount') ?? (pick<unknown[]>(p, 'hand', 'Hand') ?? []).length,
                     seatIndex: pick(p, 'seatIndex', 'SeatIndex') ?? 0,
                     weapon: (() => {
                         const w = pick<any>(p, 'weapon', 'Weapon');
@@ -425,7 +428,7 @@ export default function BangPage() {
                 winnerRole: pick(b, 'winnerRole', 'WinnerRole'),
                 winnerPlayerIds: pick(b, 'winnerPlayerIds', 'WinnerPlayerIds') ?? [],
                 endReason: pick(b, 'endReason', 'EndReason'),
-                deck: pick(b, 'deck', 'Deck') ?? [],
+                deckCount: pick(b, 'deckCount', 'DeckCount') ?? (pick<unknown[]>(b, 'deck', 'Deck') ?? []).length,
                 discardPile: pick(b, 'discardPile', 'DiscardPile') ?? [],
                 pending: (() => {
                     const p = pick<any>(b, 'pending', 'Pending');
@@ -494,11 +497,12 @@ export default function BangPage() {
                     : winnerRole === 2 ? '무법자'
                     : winnerRole === 3 ? '배신자'
                     : '승자';
+                const myPid = getMyPlayerId();
                 pushHistory({
                     mode: "Bang",
                     winnerName: winnerNames.length > 0 ? `${roleLabel}: ${winnerNames.join(', ')}` : roleLabel,
                     detail: reason,
-                    isMyWin: connection.connectionId ? winnerPlayerIds.includes(connection.connectionId) : false
+                    isMyWin: myPid ? winnerPlayerIds.includes(myPid) : false
                 });
             }
         };
@@ -552,7 +556,7 @@ export default function BangPage() {
         if (!current) return;
         if (prevTurnRef.current === current) return;
         prevTurnRef.current = current;
-        if (current === connection.connectionId) {
+        if (current === getMyPlayerId()) {
             playSound("my-turn");
             setRevealToast({ id: Date.now(), text: '🎯 당신의 차례!' });
             setMyTurnFlashKey(Date.now());
@@ -563,7 +567,7 @@ export default function BangPage() {
     const startNoticeShownRef = useRef(false);
     useEffect(() => {
         if (startNoticeShownRef.current) return;
-        const me = room?.bang?.players.find(p => p.playerId === connection.connectionId);
+        const me = room?.bang?.players.find(p => p.playerId === getMyPlayerId());
         if (!me || !room?.bang) return;
         startNoticeShownRef.current = true;
         const roleLabel = ['🌟 보안관', '🤝 부보안관', '🤠 무법자', '🥷 배신자'][me.role];
@@ -581,7 +585,7 @@ export default function BangPage() {
         if (!isMyResponder) return;
         const p = room?.bang?.pending;
         if (!p) return;
-        const myPlayer = room?.bang?.players.find(pl => pl.playerId === connection.connectionId);
+        const myPlayer = room?.bang?.players.find(pl => pl.playerId === getMyPlayerId());
         if (!myPlayer) return;
         const hasMissed = myPlayer.hand.some(c => c.type === 1 || c.type === 23); // 빗나감 또는 회피
         if (!hasMissed) return;
@@ -614,7 +618,7 @@ export default function BangPage() {
     const prevHealthRef = useRef<number | null>(null);
     const [shakeKey, setShakeKey] = useState<number>(0);
     useEffect(() => {
-        const myPlayer = room?.bang?.players.find(p => p.playerId === connection.connectionId);
+        const myPlayer = room?.bang?.players.find(p => p.playerId === getMyPlayerId());
         if (!myPlayer) return;
         const prev = prevHealthRef.current;
         prevHealthRef.current = myPlayer.health;
@@ -639,9 +643,9 @@ export default function BangPage() {
     const isMyResponder = (() => {
         const p = room?.bang?.pending;
         if (!p) return false;
-        if ((p.type === 1 || p.type === 7 || p.type === 11) && p.targetPlayerId === connection.connectionId) return true;
-        if ((p.type === 2 || p.type === 5 || p.type === 6) && p.responderQueue?.[0] === connection.connectionId) return true;
-        if ((p.type === 4 || p.type === 8 || p.type === 9 || p.type === 10) && p.sourcePlayerId === connection.connectionId) return true;
+        if ((p.type === 1 || p.type === 7 || p.type === 11) && p.targetPlayerId === getMyPlayerId()) return true;
+        if ((p.type === 2 || p.type === 5 || p.type === 6) && p.responderQueue?.[0] === getMyPlayerId()) return true;
+        if ((p.type === 4 || p.type === 8 || p.type === 9 || p.type === 10) && p.sourcePlayerId === getMyPlayerId()) return true;
         return false;
     })();
 
@@ -675,7 +679,7 @@ export default function BangPage() {
         const pending = room?.bang?.pending;
         if (!pending || !pendingKey) return;
         if (autoFiredRef.current === pendingKey) return;
-        const myConnId = connection.connectionId;
+        const myConnId = getMyPlayerId();
         if (!myConnId) return;
 
         const isResponder = (() => {
@@ -770,7 +774,7 @@ export default function BangPage() {
     }
 
     const bang = room.bang;
-    const myId = connection.connectionId;
+    const myId = getMyPlayerId();
     const isHost = room.hostPlayerId === myId;
     const me = bang.players.find(p => p.playerId === myId);
     // 시계방향 정렬 — 본인 seatIndex 기준 다음 좌석부터
@@ -1322,7 +1326,7 @@ export default function BangPage() {
                                         ❤ {p.health}/{p.maxHealth}
                                     </div>
                                     <div style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
-                                        손 {p.hand.length}장
+                                        손 {p.handCount}장
                                     </div>
                                     {(p.weapon || p.equipment.length > 0) && (
                                         <div style={{ marginTop: '0.4rem', display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
@@ -1348,7 +1352,7 @@ export default function BangPage() {
                     {/* 덱 + 버린 카드 정보 — 가운데 정렬 */}
                     <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', justifyContent: 'center' }}>
                         <div style={{ padding: '0.75rem 1rem', background: '#064e3b', borderRadius: '0.5rem', color: 'white' }}>
-                            덱: {bang.deck.length}장
+                            덱: {bang.deckCount}장
                         </div>
                         <button
                             onClick={() => bang.discardPile.length > 0 && setShowDiscardModal(true)}
@@ -1936,7 +1940,7 @@ export default function BangPage() {
 
             {/* Jesse Jones 드로우 옵션 */}
             {bang.pending?.type === 9 && bang.pending.sourcePlayerId === myId && (() => {
-                const targets = bang.players.filter(p => p.playerId !== myId && p.health > 0 && p.hand.length > 0);
+                const targets = bang.players.filter(p => p.playerId !== myId && p.health > 0 && p.handCount > 0);
                 return (
                     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000 }}>
                         <div style={{ background: '#1e293b', padding: '2rem', borderRadius: '1rem', border: '2px solid #a78bfa', textAlign: 'center', maxWidth: '500px' }}>
@@ -1950,7 +1954,7 @@ export default function BangPage() {
                             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', justifyContent: 'center' }}>
                                 {targets.map(t => (
                                     <button key={t.playerId} onClick={() => connection.invoke("ChooseJesseJones", roomId, false, t.playerId)} style={{ padding: '0.5rem 0.75rem', background: '#a78bfa', color: 'white', border: 'none', borderRadius: '0.4rem', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                                        {t.name} (손 {t.hand.length}장)
+                                        {t.name} (손 {t.handCount}장)
                                     </button>
                                 ))}
                             </div>

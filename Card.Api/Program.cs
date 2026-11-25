@@ -87,7 +87,7 @@ builder.Services.AddSignalR(options =>
     // Development 환경에서만 자세한 에러 메시지 클라이언트로 송신
     options.EnableDetailedErrors = builder.Environment.IsDevelopment();
 });
-builder.Services.AddSingleton<IUserIdProvider, NameIdentifierUserIdProvider>();
+builder.Services.AddSingleton<IUserIdProvider, NameUserIdProvider>();
 builder.Services.AddScoped<JwtTokenService>();
 builder.Services.AddScoped<PasswordHashService>();
 builder.Services.AddSingleton<GameRoomService>();

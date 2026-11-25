@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { connection, ensureConnection, setActiveRoom } from "../signalr/connection";
+import { getMyPlayerId } from "../auth/authStorage";
 import { useTurnTimeout } from "../util/useTurnTimeout";
 import { playSound } from "../sound/sound";
 import { pushHistory } from "../util/gameHistory";
@@ -84,7 +85,7 @@ export default function OmokPage() {
         const onRoomUpdated = (updatedRoom: any) => {
             if (!mounted) return;
             console.log("[OmokPage] RoomUpdated raw:", updatedRoom);
-            console.log("[OmokPage] myConnectionId:", connection.connectionId);
+            console.log("[OmokPage] myId:", getMyPlayerId());
             // 서버는 PascalCase로 보낼 수도 있어 정규화
             const normalized: OmokGameRoom = {
                 roomId: pick(updatedRoom, 'roomId', 'RoomId') ?? '',
@@ -141,7 +142,7 @@ export default function OmokPage() {
 
             // 효과음: 무승부면 X, 본인 승리면 win, 그 외 (패배/기권)는 resign
             if (!isDraw) {
-                if (winnerId === connection.connectionId) playSound("win");
+                if (winnerId === getMyPlayerId()) playSound("win");
                 else playSound("resign");
             }
 
@@ -150,7 +151,7 @@ export default function OmokPage() {
                 mode: "Omok",
                 winnerName: isDraw ? "무승부" : (winnerName || "승자 미확정"),
                 detail: reason,
-                isMyWin: !isDraw && winnerId === connection.connectionId
+                isMyWin: !isDraw && winnerId === getMyPlayerId()
             });
         };
 
@@ -206,7 +207,7 @@ export default function OmokPage() {
         prevMovesCountRef.current = omok.moves.length;
 
         // 본인 차례 시작 (false → true)
-        const myId = connection.connectionId;
+        const myId = getMyPlayerId();
         const myColor = omok.blackPlayerId === myId ? 1 : omok.whitePlayerId === myId ? 2 : 0;
         const isMyTurnNow = !omok.isFinished && myColor !== 0 && omok.currentTurn === myColor;
         if (isMyTurnNow && !prevIsMyTurnRef.current) {
@@ -232,7 +233,7 @@ export default function OmokPage() {
     }
 
     const omok = room.omok;
-    const myId = connection.connectionId;
+    const myId = getMyPlayerId();
     const myColor: StoneColor =
         omok?.blackPlayerId === myId ? 1 :
         omok?.whitePlayerId === myId ? 2 : 0;

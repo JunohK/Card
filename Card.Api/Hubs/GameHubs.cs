@@ -25,6 +25,21 @@ public class GameHub : Hub
         _bangService = bangService;
     }
 
+    // 🔑 안정 플레이어 신원 키(닉네임, JWT Name 클레임).
+    // ConnectionId는 재접속마다 바뀌므로 신원으로 쓰지 않는다 — 그룹/연결 관리에만 사용.
+    private string PlayerKey => Context.User?.Identity?.Name ?? "Unknown";
+
+    // 🔒 방 전원에게 각자 관점으로 마스킹된 방 상태를 전송.
+    // 그룹 브로드캐스트 대체 — 다른 플레이어의 손패/뱅 역할 등 비공개 정보 보호.
+    private async Task BroadcastRoomAsync(GameRoom room, string eventName = "RoomUpdated")
+    {
+        foreach (var p in room.Players)
+        {
+            if (p.IsBot) continue;
+            await Clients.User(p.PlayerId).SendAsync(eventName, room.CreateViewFor(p.PlayerId));
+        }
+    }
+
     // ✅ 로비 진입 (프로필 객체 전송 및 목록 갱신)
     public async Task EnterLobby()
     {
@@ -57,7 +72,7 @@ public class GameHub : Hub
         var room = _roomService.CreateRoom(nickname, title, password, mode);
 
         // 방 생성 직후 입장 처리
-        _roomService.JoinRoom(room.RoomId, Context.ConnectionId, nickname, password);
+        _roomService.JoinRoom(room.RoomId, PlayerKey, nickname, password);
 
         await Groups.AddToGroupAsync(Context.ConnectionId, room.RoomId);
         await Clients.Caller.SendAsync("RoomCreated", room.RoomId);
@@ -74,64 +89,73 @@ public class GameHub : Hub
         // 2. 닉네임 추출
         var nickname = Context.User?.Identity?.Name ?? "Unknown";
 
-        // 3. 서비스 호출 — 비밀번호/인원 등 검증 실패 시 예외 발생
-        GameRoom? updatedRoom;
-        try
+        using (await _roomService.LockRoomAsync(roomId))
         {
-            updatedRoom = _roomService.JoinRoom(roomId, Context.ConnectionId, nickname, password);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            // 비밀번호 불일치 — 클라이언트에 명확한 메시지 + invoke 실패로 알림
-            await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
-            throw new HubException(ex.Message);
-        }
-        catch (Exception ex)
-        {
-            // 인원 초과 등 기타 예외
-            await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
-            throw new HubException(ex.Message);
-        }
+            // 3. 서비스 호출 — 비밀번호/인원 등 검증 실패 시 예외 발생
+            GameRoom? updatedRoom;
+            try
+            {
+                updatedRoom = _roomService.JoinRoom(roomId, PlayerKey, nickname, password);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                // 비밀번호 불일치 — 클라이언트에 명확한 메시지 + invoke 실패로 알림
+                await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
+                throw new HubException(ex.Message);
+            }
+            catch (Exception ex)
+            {
+                // 인원 초과 등 기타 예외
+                await Clients.Caller.SendAsync("ErrorMessage", ex.Message);
+                throw new HubException(ex.Message);
+            }
 
-        if (updatedRoom != null)
-        {
-            await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
-            await Clients.Caller.SendAsync("JoinRoomSuccess", roomId);
-            await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
-            await SendRoomListToAll();
+            if (updatedRoom != null)
+            {
+                await Groups.AddToGroupAsync(Context.ConnectionId, roomId);
+                await Clients.Caller.SendAsync("JoinRoomSuccess", roomId);
+                await BroadcastRoomAsync(updatedRoom);
+                await SendRoomListToAll();
+            }
         }
     }
 
     // ✅ 방 나가기
     public async Task LeaveRoom(string roomId)
     {
-        _roomService.LeaveRoom(roomId, Context.ConnectionId);
-        await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
-        
-        var room = _roomService.GetRoom(roomId);
-        if (room != null)
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-            
-        await SendRoomListToAll();
+        using (await _roomService.LockRoomAsync(roomId))
+        {
+            _roomService.LeaveRoom(roomId, PlayerKey);
+            await Groups.RemoveFromGroupAsync(Context.ConnectionId, roomId);
+
+            var room = _roomService.GetRoom(roomId);
+            if (room != null)
+                await BroadcastRoomAsync(room);
+
+            await SendRoomListToAll();
+        }
     }
 
     // ✅ [새로 추가한 기능] 게임 시작
     public async Task StartGame(string roomId, int maxRounds)
     {
-        try 
+        try
         {
-            // 1. 서비스에서 게임 데이터 초기화 (패 배분, 첫 턴 설정)
-            _roomService.StartGame(roomId, maxRounds); 
-            
-            var room = _roomService.GetRoom(roomId);
-            if (room == null) return;
+            using (await _roomService.LockRoomAsync(roomId))
+            {
+                // 1. 서비스에서 게임 데이터 초기화 (패 배분, 첫 턴 설정)
+                _roomService.StartGame(roomId, maxRounds);
 
-            // 2. 모든 플레이어에게 "게임 시작"과 "첫 데이터"를 동시에 전송
-            // GameStarted와 RoomUpdated를 연달아 보내 모든 클라이언트의 UI를 강제 갱신합니다.
-            await Clients.Group(roomId).SendAsync("GameStarted", room);
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-            
-            Console.WriteLine($"Game Started in Room {roomId}. First Turn: {room.CurrentTurnPlayerId}");
+                var room = _roomService.GetRoom(roomId);
+                if (room == null) return;
+
+                // 2. 모든 플레이어에게 "게임 시작"과 "첫 데이터"를 동시에 전송
+                // GameStarted와 RoomUpdated를 연달아 보내 모든 클라이언트의 UI를 강제 갱신합니다.
+                await BroadcastRoomAsync(room, "GameStarted");
+                await BroadcastRoomAsync(room);
+
+                Console.WriteLine($"Game Started in Room {roomId}. First Turn: {room.CurrentTurnPlayerId}");
+            }
         }
         catch (Exception ex)
         {
@@ -140,32 +164,13 @@ public class GameHub : Hub
         }
     }
 
-    public async Task<object> GetRoom(string roomId)
+    public Task<object> GetRoom(string roomId)
     {
         var room = _roomService.GetRoom(roomId);
         if(room == null) throw new HubException("방을 찾을 수 없습니다.");
 
-        return new
-        {
-            RoomId = room.RoomId,
-            Title = room.Title,
-            Players = room.Players.Select(p => new {
-                PlayerId = p.PlayerId,
-                Name = p.Name,
-                Hand = p.Hand ?? new List<PlayingCard>(),
-                TotalScore = p.TotalScore
-            }),
-            CurrentTurnPlayerId = room.CurrentTurnPlayerId,
-            LastDiscardedCard = room.LastDiscardedCard,
-            DeckCount = room.DeckCount,
-            IsStarted = room.IsStarted,   // 대기실 복귀 판단 기준
-            IsFinished = room.IsFinished, // 전광판 표시 기준
-            WinnerName = room.WinnerName,
-            WinnerHand = room.WinnerHand ?? new List<PlayingCard>(),
-            HostPlayerId = room.HostPlayerId,
-            CurrentRound = room.CurrentRound,
-            MaxRounds = room.MaxRounds
-        };
+        // 초기 로드 shape를 RoomUpdated와 동일하게 통일 + 호출자 관점으로 마스킹
+        return Task.FromResult<object>(room.CreateViewFor(PlayerKey));
     }
 
     public async Task UpdateRoomSettings(string roomId, int maxRounds)
@@ -174,13 +179,13 @@ public class GameHub : Hub
         if (room == null) return;
 
         // 방장이 아닌 사람이 요청하면 무시
-        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.HostPlayerId != PlayerKey) return;
 
         // 서버 메모리에 저장된 라운드 수 변경
         room.MaxRounds = maxRounds;
 
         // 🔴 방의 모든 인원에게 변경된 정보를 쏨 (RoomUpdated 이벤트 발생)
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
     }
 
     // 조커 갯수 변경 (0, 1, 2). 방장만 가능, 게임 시작 전에만
@@ -188,12 +193,12 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.HostPlayerId != PlayerKey) return;
         if (room.IsStarted) return;
         if (jokerCount < 0 || jokerCount > 2) return;
 
         room.JokerCount = jokerCount;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
     }
 
     // 카드 모드 변경 (0=Trump, 1=Hwatu). 방장만 가능, 게임 시작 전에만
@@ -201,69 +206,89 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.HostPlayerId != PlayerKey) return;
         if (room.IsStarted) return;
         if (!Enum.IsDefined(typeof(CardMode), cardMode)) return;
 
         room.CardMode = (CardMode)cardMode;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
     }
 
     public async Task PlayCard(string roomId, PlayingCard card)
     {
+        string cardOwnerId = PlayerKey;
         try
         {
-            var room = _roomService.GetRoom(roomId);
-            if (room == null || !room.IsStarted || room.IsFinished) return;
+            bool canPung;
 
-            string cardOwnerId = Context.ConnectionId;
-
-            // 1. 현재 턴인 유저가 선택한 카드 1장을 버림 (서비스 호출)
-            // 서비스의 PlayCard 내부에서는 턴을 넘기지 않도록 수정된 상태여야 합니다.
-            _roomService.PlayCard(roomId, cardOwnerId, card);
-
-            // 2. 즉시 전송하여 바닥에 카드가 깔린 것을 모두에게 보여줌
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-
-            // 2-1. 바가지/STOP 등 즉시 라운드 종료된 경우 — 결과만 전파하고 종료
-            if (room.IsRoundEnded || room.IsFinished)
+            // ── 1구간: 카드 버림 + 뻥 윈도우 개시 (락 안에서 원자적으로) ──
+            using (await _roomService.LockRoomAsync(roomId))
             {
-                await Clients.Group(roomId).SendAsync("ShowResultBoard", new
+                var room = _roomService.GetRoom(roomId);
+                if (room == null || !room.IsStarted || room.IsFinished) return;
+                // 턴 가드: 내 턴이 아니면 무시(중복/난입 방지)
+                if (room.CurrentTurnPlayerId != cardOwnerId) return;
+
+                // 현재 턴인 유저가 선택한 카드 1장을 버림 (서비스는 턴을 넘기지 않음)
+                _roomService.PlayCard(roomId, cardOwnerId, card);
+
+                // 즉시 전송하여 바닥에 카드가 깔린 것을 모두에게 보여줌
+                await BroadcastRoomAsync(room);
+
+                // 바가지/STOP 등 즉시 라운드 종료된 경우 — 결과만 전파하고 종료
+                if (room.IsRoundEnded || room.IsFinished)
                 {
-                    WinnerPlayerId = room.WinnerPlayerId,
-                    WinnerName = room.WinnerName,
-                    WinnerHand = room.WinnerHand,
-                    WinType = room.LastWinType
-                });
+                    await Clients.Group(roomId).SendAsync("ShowResultBoard", new
+                    {
+                        WinnerPlayerId = room.WinnerPlayerId,
+                        WinnerName = room.WinnerName,
+                        WinnerHand = room.WinnerHand,
+                        WinType = room.LastWinType
+                    });
+                    return;
+                }
+
+                // 뻥(내 패에 동일 숫자 2장 보유) 가능 유저 체크
+                canPung = room.Players.Any(p => p.PlayerId != cardOwnerId && CheckCanIntercept(p, card));
+                if (canPung)
+                {
+                    // 뻥 윈도우 atomic open — InterruptDiscard가 이 안에서 단 1명만 통과
+                    Interlocked.Exchange(ref room.PungWindowFlag, 1);
+                }
+            }
+
+            if (!canPung)
+            {
+                // 뻥칠 사람이 없으면 즉시 다음 사람 턴으로 (락 안에서 턴 이동)
+                using (await _roomService.LockRoomAsync(roomId))
+                {
+                    var room = _roomService.GetRoom(roomId);
+                    if (room == null) return;
+                    MoveToNextTurn(room, cardOwnerId);
+                    await BroadcastRoomAsync(room);
+                }
                 return;
             }
 
-            // 3. 뻥(내 패에 동일 숫자 2장 보유) 가능 유저 체크
-            var canPung = room.Players.Any(p => p.PlayerId != cardOwnerId && CheckCanIntercept(p, card));
+            // 🔥 3초 대기: 다른 유저가 InterruptDiscard를 호출할 시간을 줌.
+            //    이 구간은 락 밖 — 그래야 InterruptDiscard가 락을 잡고 들어올 수 있다.
+            await Task.Delay(3000);
 
-            if (canPung)
+            // ── 2구간: 윈도우 마감 (락 안에서) ──
+            using (await _roomService.LockRoomAsync(roomId))
             {
-                // 뻥 윈도우 atomic open — InterruptDiscard/InterceptWin이 이 안에서 단 1명만 통과
-                Interlocked.Exchange(ref room.PungWindowFlag, 1);
+                var room = _roomService.GetRoom(roomId);
+                if (room == null) return;
 
-                // 🔥 3초 대기: 다른 유저가 InterruptDiscard를 호출할 시간을 줌
-                await Task.Delay(3000);
-
-                // 3초 후 윈도우 close 시도: 1→0 성공이면 아무도 안 가로챈 것
+                // 윈도우 close 시도: 1→0 성공이면 아무도 안 가로챈 것
                 bool noPungOccurred = Interlocked.CompareExchange(ref room.PungWindowFlag, 0, 1) == 1;
 
                 if (noPungOccurred && !room.IsRoundEnded && !room.IsFinished && room.CurrentTurnPlayerId == cardOwnerId)
                 {
                     MoveToNextTurn(room, cardOwnerId);
-                    await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+                    await BroadcastRoomAsync(room);
                 }
-                // 누가 가로챘으면 그 핸들러에서 turn/결과를 이미 전파했으므로 여기서는 아무것도 안 함
-            }
-            else
-            {
-                // 뻥칠 사람이 없으면 즉시 다음 사람 턴으로
-                MoveToNextTurn(room, cardOwnerId);
-                await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+                // 누가 가로챘으면 InterruptDiscard가 turn/결과를 이미 전파했으므로 여기서는 아무것도 안 함
             }
         }
         catch (Exception ex)
@@ -292,13 +317,15 @@ public class GameHub : Hub
     {
         try
         {
+            using (await _roomService.LockRoomAsync(roomId))
+            {
             var room = _roomService.GetRoom(roomId);
             if (room == null || room.IsRoundEnded) return;
 
             var targetCard = room.LastDiscardedCard;
             if (targetCard == null) return;
 
-            var player = room.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+            var player = room.Players.FirstOrDefault(p => p.PlayerId == PlayerKey);
             if (player == null) return;
 
             // 자격 검증을 먼저 한 뒤, atomic하게 윈도우 닫기 시도 (한 명만 통과)
@@ -361,10 +388,11 @@ public class GameHub : Hub
                 await Clients.Group(roomId).SendAsync("ErrorMessage", $"🔥 {player.Name}님이 뻥을 성공했습니다!! 🔥");
 
                 // 4. 상태 전파 (A가 버린 1장 + 내가 버린 2장이 바닥에 보임)
-                await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+                await BroadcastRoomAsync(room);
                 
                 // 5. 클라이언트에게 1장 더 버리라고 신호 보냄
                 await Clients.Caller.SendAsync("PungSuccess", "패에서 추가로 버릴 카드 1장을 선택하세요.");
+            }
             }
         }
         catch (Exception ex)
@@ -375,36 +403,42 @@ public class GameHub : Hub
 
     public async Task DeclareStop(string roomId)
     {
-        // 서비스의 로직 호출
-        _roomService.DeclareStop(roomId, Context.ConnectionId);
-        
-        // 알림 메시지 전송
-        var room = _roomService.GetRoom(roomId);
-        var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
-        if (player != null && room.IsStopDeclared)
+        using (await _roomService.LockRoomAsync(roomId))
         {
-            await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 STOP을 선언했습니다! 카드를 버리면 게임이 종료됩니다.");
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+            // 서비스의 로직 호출
+            _roomService.DeclareStop(roomId, PlayerKey);
+
+            // 알림 메시지 전송
+            var room = _roomService.GetRoom(roomId);
+            var player = room?.Players.FirstOrDefault(p => p.PlayerId == PlayerKey);
+            if (player != null && room.IsStopDeclared)
+            {
+                await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 STOP을 선언했습니다! 카드를 버리면 게임이 종료됩니다.");
+                await BroadcastRoomAsync(room);
+            }
         }
     }
 
     public async Task DeclarePung(string roomId)
     {
-        // 서비스에서 자격 검증 후 성공 시에만 알림
-        bool success = _roomService.DeclarePung(roomId, Context.ConnectionId);
-        if (!success)
+        using (await _roomService.LockRoomAsync(roomId))
         {
-            await Clients.Caller.SendAsync("ErrorMessage", "뻥 조건을 만족하지 않습니다.");
-            return;
-        }
+            // 서비스에서 자격 검증 후 성공 시에만 알림
+            bool success = _roomService.DeclarePung(roomId, PlayerKey);
+            if (!success)
+            {
+                await Clients.Caller.SendAsync("ErrorMessage", "뻥 조건을 만족하지 않습니다.");
+                return;
+            }
 
-        var room = _roomService.GetRoom(roomId);
-        var player = room?.Players.FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+            var room = _roomService.GetRoom(roomId);
+            var player = room?.Players.FirstOrDefault(p => p.PlayerId == PlayerKey);
 
-        if (player != null)
-        {
-            await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 뻥을 선언했습니다!! ");
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+            if (player != null)
+            {
+                await Clients.Group(roomId).SendAsync("ErrorMessage", $"{player.Name}님이 뻥을 선언했습니다!! ");
+                await BroadcastRoomAsync(room);
+            }
         }
     }
 
@@ -435,17 +469,20 @@ public class GameHub : Hub
 
     public async Task DrawCard(string roomId)
     {
-        var updatedRoom = _roomService.DrawCard(roomId, Context.ConnectionId);
-        if (updatedRoom != null)
+        using (await _roomService.LockRoomAsync(roomId))
         {
-            // RoundTurnCount는 Service.DrawCard에서 이미 증가시킴 (이중 증가 방지)
-            await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+            var updatedRoom = _roomService.DrawCard(roomId, PlayerKey);
+            if (updatedRoom != null)
+            {
+                // RoundTurnCount는 Service.DrawCard에서 이미 증가시킴 (이중 증가 방지)
+                await BroadcastRoomAsync(updatedRoom);
+            }
         }
     }
 
     public async Task ReshuffleDeck(string roomId)
     {
-        var playerId = Context.ConnectionId; // 또는 유저 ID
+        var playerId = PlayerKey;
         var success = _roomService.ReshuffleDiscardPile(roomId, playerId);
 
         if (success)
@@ -455,87 +492,92 @@ public class GameHub : Hub
             
             // 갱신된 방 상태 전송 (덱 개수 등을 클라이언트에서 업데이트하기 위함)
             var room = _roomService.GetRoom(roomId);
-            await Clients.Group(roomId).SendAsync("ReshuffleDeck", room);
+            if (room != null) await BroadcastRoomAsync(room, "ReshuffleDeck");
         }
     }
 
     // 승리 로직 계산
     public async Task DeclareWin(string roomId)
     {
-        var room = _roomService.GetRoom(roomId);
-        if (room == null) return;
-
-        var player = room.Players
-            .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
-        if (player == null) return;
-
-        // ✅ 1. 먼저 선언 가능 여부 검사
-        if (!_roomService.CanDeclareWin(room, player))
-        {
-            await Clients.Caller.SendAsync(
-                "ErrorMessage",
-                "아직 승리 선언을 할 수 없습니다."
-            );
-            return;
-        }
-
-        // ✅ 2. 그 다음 실제 승리 처리
-        bool success = _roomService.DeclareWin(
-            room,
-            player,
-            WinReason.ManualDeclare
-        );
-
-        if (!success)
-        {
-            await Clients.Caller.SendAsync(
-                "ErrorMessage",
-                "조건에 맞지 않습니다."
-            );
-            return;
-        }
-
-        // ✅ 3. 결과 전파
-        await Clients.Group(roomId).SendAsync(
-            "ShowResultBoard",
-            new
-            {
-                WinnerPlayerId = room.WinnerPlayerId,
-                WinnerName = room.WinnerName,
-                WinnerHand = room.WinnerHand,
-                WinType = room.LastWinType
-            }
-        );
-
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-    }
-
-    public async Task RequestNextRound(string roomId)
-    {
-        try 
+        using (await _roomService.LockRoomAsync(roomId))
         {
             var room = _roomService.GetRoom(roomId);
             if (room == null) return;
 
-            // 방장만 다음 라운드를 시작할 수 있도록 권한 체크 추가
-            if (room.HostPlayerId != Context.ConnectionId)
+            var player = room.Players
+                .FirstOrDefault(p => p.PlayerId == PlayerKey);
+            if (player == null) return;
+
+            // ✅ 1. 먼저 선언 가능 여부 검사
+            if (!_roomService.CanDeclareWin(room, player))
             {
-                await Clients.Caller.SendAsync("ErrorMessage", "방장만 다음 라운드를 시작할 수 있습니다.");
+                await Clients.Caller.SendAsync(
+                    "ErrorMessage",
+                    "아직 승리 선언을 할 수 없습니다."
+                );
                 return;
             }
 
-            // 1. 서비스에서 덱 생성, '셔플', 카드 분배, 턴 설정을 모두 수행
-            _roomService.StartNextRound(room);
+            // ✅ 2. 그 다음 실제 승리 처리
+            bool success = _roomService.DeclareWin(
+                room,
+                player,
+                WinReason.ManualDeclare
+            );
 
-            // 2. 모든 플레이어에게 전광판을 닫으라고 명령
-            await Clients.Group(roomId).SendAsync("HideResultBoard");
+            if (!success)
+            {
+                await Clients.Caller.SendAsync(
+                    "ErrorMessage",
+                    "조건에 맞지 않습니다."
+                );
+                return;
+            }
 
-            // 3. 갱신된 방 상태(새 패, 새로운 턴 등)를 전송
-            // GetRoom에서 사용하는 익명 객체 구조와 동일하게 보내야 클라이언트 UI가 깨지지 않습니다.
-            var roomState = await GetRoom(roomId); 
-            await Clients.Group(roomId).SendAsync("RoomUpdated", roomState);
-            
-            Console.WriteLine($"Next Round Started: {room.CurrentRound}. Turn: {room.CurrentTurnPlayerId}");
+            // ✅ 3. 결과 전파
+            await Clients.Group(roomId).SendAsync(
+                "ShowResultBoard",
+                new
+                {
+                    WinnerPlayerId = room.WinnerPlayerId,
+                    WinnerName = room.WinnerName,
+                    WinnerHand = room.WinnerHand,
+                    WinType = room.LastWinType
+                }
+            );
+
+            await BroadcastRoomAsync(room);
+        }
+    }
+
+    public async Task RequestNextRound(string roomId)
+    {
+        try
+        {
+            using (await _roomService.LockRoomAsync(roomId))
+            {
+                var room = _roomService.GetRoom(roomId);
+                if (room == null) return;
+
+                // 방장만 다음 라운드를 시작할 수 있도록 권한 체크 추가
+                if (room.HostPlayerId != PlayerKey)
+                {
+                    await Clients.Caller.SendAsync("ErrorMessage", "방장만 다음 라운드를 시작할 수 있습니다.");
+                    return;
+                }
+
+                // 1. 서비스에서 덱 생성, '셔플', 카드 분배, 턴 설정을 모두 수행
+                _roomService.StartNextRound(room);
+
+                // 2. 모든 플레이어에게 전광판을 닫으라고 명령
+                await Clients.Group(roomId).SendAsync("HideResultBoard");
+
+                // 3. 갱신된 방 상태(새 패, 새로운 턴 등)를 전송 — 다른 핸들러와 동일하게 raw room 전송
+                //    (기존엔 GetRoom 프로젝션을 보내 필드 누락으로 다음 라운드 상태가 꼬였음)
+                await BroadcastRoomAsync(room);
+
+                Console.WriteLine($"Next Round Started: {room.CurrentRound}. Turn: {room.CurrentTurnPlayerId}");
+            }
         }
         catch (Exception ex)
         {
@@ -550,13 +592,13 @@ public class GameHub : Hub
         if (room == null) return;
 
         // 1. 기권 처리 (IsFinished = true 처리됨)
-        _roomService.GiveUpGame(roomId, Context.ConnectionId);
+        _roomService.GiveUpGame(roomId, PlayerKey);
 
         // 2. ⭐ 명시적으로 게임 시작 상태를 해제 (대기실 복귀용)
         room.IsStarted = false; 
 
         // 3. 최신 데이터 전송
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         
         // 4. 전광판을 띄우는 대신 바로 나가게 하고 싶다면 이 신호를 보냄
         // 만약 결과 확인 후 나가게 하고 싶다면 "GameTerminated" 신호를 사용
@@ -570,7 +612,7 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId)
+        if (room.HostPlayerId != PlayerKey)
         {
             await Clients.Caller.SendAsync("ErrorMessage", "방장만 게임을 시작할 수 있습니다.");
             return;
@@ -583,15 +625,15 @@ public class GameHub : Hub
             return;
         }
 
-        await Clients.Group(roomId).SendAsync("GameStarted", room);
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room, "GameStarted");
+        await BroadcastRoomAsync(room);
         await SendForbiddenPointsToBlack(roomId, room);
     }
 
     // 돌 놓기
     public async Task PlaceStone(string roomId, int row, int col)
     {
-        var result = _omokService.PlaceStone(roomId, Context.ConnectionId, row, col);
+        var result = _omokService.PlaceStone(roomId, PlayerKey, row, col);
         if (!result.Success)
         {
             await Clients.Caller.SendAsync("ErrorMessage", result.Error ?? "돌을 놓을 수 없습니다.");
@@ -601,7 +643,7 @@ public class GameHub : Hub
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
 
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
 
         if (result.GameEnded)
         {
@@ -628,19 +670,20 @@ public class GameHub : Hub
         var points = _omokService.GetCurrentBlackForbiddenPoints(roomId);
         var blackId = room.Omok.BlackPlayerId;
         if (string.IsNullOrEmpty(blackId)) return;
-        await Clients.Client(blackId).SendAsync("OmokForbiddenPoints", new { Points = points });
+        // PlayerId가 닉네임(=UserIdentifier)이므로 User 타겟 전송 — 재접속해도 도달
+        await Clients.User(blackId).SendAsync("OmokForbiddenPoints", new { Points = points });
     }
 
     // 오목 기권
     public async Task ResignOmok(string roomId)
     {
-        bool ok = _omokService.ResignOmok(roomId, Context.ConnectionId);
+        bool ok = _omokService.ResignOmok(roomId, PlayerKey);
         if (!ok) return;
 
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
 
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         await Clients.Group(roomId).SendAsync("OmokGameEnded", new
         {
             Reason = room.Omok?.EndReason,
@@ -657,7 +700,7 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId)
+        if (room.HostPlayerId != PlayerKey)
         {
             await Clients.Caller.SendAsync("ErrorMessage", "방장만 게임을 시작할 수 있습니다.");
             return;
@@ -668,8 +711,8 @@ public class GameHub : Hub
             await Clients.Caller.SendAsync("ErrorMessage", "뱅 게임을 시작할 수 없습니다 (4~7명 필요).");
             return;
         }
-        await Clients.Group(roomId).SendAsync("GameStarted", room);
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room, "GameStarted");
+        await BroadcastRoomAsync(room);
 
         // 사람이 손패 확인할 시간 5초 대기 (보안관이 봇이라도)
         await Clients.Group(roomId).SendAsync("BangLog", "⏳ 게임 시작! 손패를 확인할 시간 5초...");
@@ -684,7 +727,7 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId)
+        if (room.HostPlayerId != PlayerKey)
         {
             await Clients.Caller.SendAsync("ErrorMessage", "방장만 봇을 추가할 수 있습니다.");
             return;
@@ -697,7 +740,7 @@ public class GameHub : Hub
             await Clients.Caller.SendAsync("ErrorMessage", "봇을 추가할 수 없습니다 (정원 초과 또는 게임 시작됨).");
             return;
         }
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
     }
 
     // 뱅 — Dodge City 확장팩 사용 토글. 방장만, 게임 시작 전에만
@@ -705,11 +748,11 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.HostPlayerId != PlayerKey) return;
         if (room.IsStarted) return;
         if (room.GameMode != GameMode.Bang) return;
         room.BangUseDodgeCity = useDodgeCity;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
     }
 
     // 뱅 — 응답 타이머 한도 설정. 방장만, 언제든 변경 가능 (전체 인원에게 통일 적용)
@@ -717,11 +760,11 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId) return;
+        if (room.HostPlayerId != PlayerKey) return;
         if (room.GameMode != GameMode.Bang) return;
         if (!new[] { 10, 20, 30, 60 }.Contains(seconds)) return;
         room.BangResponseTimerSec = seconds;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
     }
 
     // 재대국 — 같은 방에서 다시 시작. 방장만
@@ -729,7 +772,7 @@ public class GameHub : Hub
     {
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        if (room.HostPlayerId != Context.ConnectionId)
+        if (room.HostPlayerId != PlayerKey)
         {
             await Clients.Caller.SendAsync("ErrorMessage", "방장만 재대국할 수 있습니다.");
             return;
@@ -748,8 +791,8 @@ public class GameHub : Hub
             await Clients.Caller.SendAsync("ErrorMessage", "재대국에 실패했습니다 (4~7명 필요).");
             return;
         }
-        await Clients.Group(roomId).SendAsync("GameStarted", room);
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room, "GameStarted");
+        await BroadcastRoomAsync(room);
         await Clients.Group(roomId).SendAsync("BangLog", "🔄 재대국 시작!");
         await Clients.Group(roomId).SendAsync("BangLog", "⏳ 손패를 확인할 시간 5초...");
         await Task.Delay(5000);
@@ -775,7 +818,7 @@ public class GameHub : Hub
             }
 
             var updatedRoom = _roomService.GetRoom(roomId);
-            if (updatedRoom != null) await Clients.Group(roomId).SendAsync("RoomUpdated", updatedRoom);
+            if (updatedRoom != null) await BroadcastRoomAsync(updatedRoom);
             if (!string.IsNullOrEmpty(log)) await Clients.Group(roomId).SendAsync("BangLog", log);
 
             if (updatedRoom?.Bang?.IsFinished == true)
@@ -796,7 +839,7 @@ public class GameHub : Hub
     // 카드 사용 (BANG/Beer/Stagecoach 등). targetPlayerId는 BANG처럼 대상이 필요한 경우만
     public async Task PlayBangCard(string roomId, int cardId, string? targetPlayerId)
     {
-        var result = _bangService.PlayCard(roomId, Context.ConnectionId, cardId, targetPlayerId);
+        var result = _bangService.PlayCard(roomId, PlayerKey, cardId, targetPlayerId);
         if (!result.Success)
         {
             await Clients.Caller.SendAsync("ErrorMessage", result.Error ?? "카드를 사용할 수 없습니다.");
@@ -804,7 +847,7 @@ public class GameHub : Hub
         }
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         if (!string.IsNullOrEmpty(result.Message))
             await Clients.Group(roomId).SendAsync("BangLog", result.Message);
         if (result.GameEnded)
@@ -821,7 +864,7 @@ public class GameHub : Hub
     // General Store — 시계방향으로 카드 선택
     public async Task PickGeneralStoreCard(string roomId, int cardId)
     {
-        var result = _bangService.PickFromGeneralStore(roomId, Context.ConnectionId, cardId);
+        var result = _bangService.PickFromGeneralStore(roomId, PlayerKey, cardId);
         if (!result.Success)
         {
             await Clients.Caller.SendAsync("ErrorMessage", result.Error ?? "카드를 선택할 수 없습니다.");
@@ -829,7 +872,7 @@ public class GameHub : Hub
         }
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         if (!string.IsNullOrEmpty(result.Message))
             await Clients.Group(roomId).SendAsync("BangLog", result.Message);
     }
@@ -837,70 +880,70 @@ public class GameHub : Hub
     // Indians 응답 — useBang=true면 BANG 카드로 응답, false면 데미지 수용
     public async Task RespondIndians(string roomId, bool useBang)
     {
-        var result = _bangService.RespondIndians(roomId, Context.ConnectionId, useBang);
+        var result = _bangService.RespondIndians(roomId, PlayerKey, useBang);
         await DispatchBangResult(roomId, result);
     }
 
     // Gatling 응답 — useMissed=true면 Missed로 회피, false면 데미지 수용
     public async Task RespondGatling(string roomId, bool useMissed)
     {
-        var result = _bangService.RespondGatling(roomId, Context.ConnectionId, useMissed);
+        var result = _bangService.RespondGatling(roomId, PlayerKey, useMissed);
         await DispatchBangResult(roomId, result);
     }
 
     // Duel 응답 — useBang=true면 BANG 던지고 상대 차례, false면 1 데미지 + 종료
     public async Task RespondDuel(string roomId, bool useBang)
     {
-        var result = _bangService.RespondDuel(roomId, Context.ConnectionId, useBang);
+        var result = _bangService.RespondDuel(roomId, PlayerKey, useBang);
         await DispatchBangResult(roomId, result);
     }
 
     // Sid Ketchum 능력 — 손패 2장 버려 HP 1 회복 (언제든)
     public async Task UseSidKetchum(string roomId, List<int> discardCardIds)
     {
-        var result = _bangService.UseSidKetchum(roomId, Context.ConnectionId, discardCardIds);
+        var result = _bangService.UseSidKetchum(roomId, PlayerKey, discardCardIds);
         await DispatchBangResult(roomId, result);
     }
 
     // Lucky Duke — 펴진 2장 중 1장 직접 선택
     public async Task ChooseLuckyDuke(string roomId, int chosenCardId)
     {
-        var result = _bangService.ChooseLuckyDuke(roomId, Context.ConnectionId, chosenCardId);
+        var result = _bangService.ChooseLuckyDuke(roomId, PlayerKey, chosenCardId);
         await DispatchBangResult(roomId, result);
     }
 
     // Chuck Wengam 능력 — 본인 턴에 HP 1 잃고 카드 2장
     public async Task UseChuckWengam(string roomId)
     {
-        var result = _bangService.UseChuckWengam(roomId, Context.ConnectionId);
+        var result = _bangService.UseChuckWengam(roomId, PlayerKey);
         await DispatchBangResult(roomId, result);
     }
 
     // Doc Holyday 능력 — 본인 턴에 손패 2장 버려서 BANG 효과 (턴당 1회)
     public async Task UseDocHolyday(string roomId, List<int> discardCardIds, string targetPlayerId)
     {
-        var result = _bangService.UseDocHolyday(roomId, Context.ConnectionId, discardCardIds, targetPlayerId);
+        var result = _bangService.UseDocHolyday(roomId, PlayerKey, discardCardIds, targetPlayerId);
         await DispatchBangResult(roomId, result);
     }
 
     // Kit Carlson — 펴진 3장 중 덱으로 돌릴 1장 선택
     public async Task ChooseKitCarlson(string roomId, int returnedCardId)
     {
-        var result = _bangService.KitCarlsonChoice(roomId, Context.ConnectionId, returnedCardId);
+        var result = _bangService.KitCarlsonChoice(roomId, PlayerKey, returnedCardId);
         await DispatchBangResult(roomId, result);
     }
 
     // Jesse Jones — fromDeck=true면 일반 드로우, false면 fromPlayerId 손에서 1장
     public async Task ChooseJesseJones(string roomId, bool fromDeck, string? fromPlayerId)
     {
-        var result = _bangService.JesseJonesChoice(roomId, Context.ConnectionId, fromDeck, fromPlayerId);
+        var result = _bangService.JesseJonesChoice(roomId, PlayerKey, fromDeck, fromPlayerId);
         await DispatchBangResult(roomId, result);
     }
 
     // Pedro Ramirez — fromDeck=true면 일반 드로우, false면 버린 카드 top 1장
     public async Task ChoosePedroRamirez(string roomId, bool fromDeck)
     {
-        var result = _bangService.PedroRamirezChoice(roomId, Context.ConnectionId, fromDeck);
+        var result = _bangService.PedroRamirezChoice(roomId, PlayerKey, fromDeck);
         await DispatchBangResult(roomId, result);
     }
 
@@ -914,7 +957,7 @@ public class GameHub : Hub
         }
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         if (!string.IsNullOrEmpty(result.Message))
             await Clients.Group(roomId).SendAsync("BangLog", result.Message);
 
@@ -960,7 +1003,7 @@ public class GameHub : Hub
     // CatBalou/Panic 사용자가 대상 손패의 카드 ID를 직접 선택
     public async Task PickBangCardFromTarget(string roomId, int targetCardId)
     {
-        var result = _bangService.PickCardFromTarget(roomId, Context.ConnectionId, targetCardId);
+        var result = _bangService.PickCardFromTarget(roomId, PlayerKey, targetCardId);
         if (!result.Success)
         {
             await Clients.Caller.SendAsync("ErrorMessage", result.Error ?? "카드를 선택할 수 없습니다.");
@@ -968,7 +1011,7 @@ public class GameHub : Hub
         }
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         if (!string.IsNullOrEmpty(result.Message))
             await Clients.Group(roomId).SendAsync("BangLog", result.Message);
     }
@@ -976,7 +1019,7 @@ public class GameHub : Hub
     // BANG 응답 — useMissed=true면 Missed로 회피, false면 데미지 수용
     public async Task RespondBang(string roomId, bool useMissed)
     {
-        var result = _bangService.RespondBang(roomId, Context.ConnectionId, useMissed);
+        var result = _bangService.RespondBang(roomId, PlayerKey, useMissed);
         if (!result.Success)
         {
             await Clients.Caller.SendAsync("ErrorMessage", result.Error ?? "응답할 수 없습니다.");
@@ -984,7 +1027,7 @@ public class GameHub : Hub
         }
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         if (!string.IsNullOrEmpty(result.Message))
             await Clients.Group(roomId).SendAsync("BangLog", result.Message);
         if (result.GameEnded)
@@ -1001,7 +1044,7 @@ public class GameHub : Hub
     // 턴 종료. discardCardIds는 손패 초과 시 버릴 카드 ID 배열
     public async Task EndBangTurn(string roomId, List<int>? discardCardIds)
     {
-        var result = _bangService.EndTurn(roomId, Context.ConnectionId, discardCardIds);
+        var result = _bangService.EndTurn(roomId, PlayerKey, discardCardIds);
         if (!result.Success)
         {
             await Clients.Caller.SendAsync("ErrorMessage", result.Error ?? "턴을 종료할 수 없습니다.");
@@ -1009,7 +1052,7 @@ public class GameHub : Hub
         }
         var room = _roomService.GetRoom(roomId);
         if (room == null) return;
-        await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        await BroadcastRoomAsync(room);
         if (!string.IsNullOrEmpty(result.Message))
             await Clients.Group(roomId).SendAsync("BangLog", result.Message);
     }
@@ -1035,7 +1078,7 @@ public class GameHub : Hub
             if (!_omokService.ResignOmok(roomId, currentId)) return;
             var r = _roomService.GetRoom(roomId);
             if (r == null) return;
-            await Clients.Group(roomId).SendAsync("RoomUpdated", r);
+            await BroadcastRoomAsync(r);
             await Clients.Group(roomId).SendAsync("OmokGameEnded", new
             {
                 Reason = r.Omok?.EndReason,
@@ -1064,7 +1107,7 @@ public class GameHub : Hub
             var result = _bangService.EndTurn(roomId, timedOutPlayerId, discardIds);
             if (!result.Success) return;
             var r = _roomService.GetRoom(roomId);
-            if (r != null) await Clients.Group(roomId).SendAsync("RoomUpdated", r);
+            if (r != null) await BroadcastRoomAsync(r);
             await Clients.Group(roomId).SendAsync("BangLog", $"⏱ {me.Name} 턴 시간 초과 — 자동 종료");
             await TriggerBotActions(roomId);
             return;
@@ -1073,21 +1116,27 @@ public class GameHub : Hub
         // ── Cards — 자동으로 카드 1장 버려 턴 종료 (타임아웃 시 뻥 윈도우는 생략) ──
         if (room.GameMode == GameMode.Cards)
         {
-            if (room.IsRoundEnded) return;
-            if (room.CurrentTurnPlayerId != timedOutPlayerId) return;
-            if ((DateTime.UtcNow - room.TurnStartedAt).TotalSeconds < room.TurnTimeoutSec - graceSec) return;
+            // 락 안에서 재검증 → 여러 클라가 동시에 호출해도 턴이 중복 진행되지 않음(TOCTOU 방지)
+            using (await _roomService.LockRoomAsync(roomId))
+            {
+                var r = _roomService.GetRoom(roomId);
+                if (r == null || !r.IsStarted || r.IsFinished) return;
+                if (r.IsRoundEnded) return;
+                if (r.CurrentTurnPlayerId != timedOutPlayerId) return;
+                if ((DateTime.UtcNow - r.TurnStartedAt).TotalSeconds < r.TurnTimeoutSec - graceSec) return;
 
-            var player = room.Players.FirstOrDefault(p => p.PlayerId == timedOutPlayerId);
-            if (player == null || player.Hand.Count == 0) return;
+                var player = r.Players.FirstOrDefault(p => p.PlayerId == timedOutPlayerId);
+                if (player == null || player.Hand.Count == 0) return;
 
-            var discard = player.Hand[^1];
-            player.Hand.RemoveAt(player.Hand.Count - 1);
-            room.LastDiscardedCard = discard;
-            room.DiscardPile.Add(discard);
-            room.LastActorPlayerId = timedOutPlayerId;
-            MoveToNextTurn(room, timedOutPlayerId);
-            await Clients.Group(roomId).SendAsync("RoomUpdated", room);
-            await Clients.Group(roomId).SendAsync("ErrorMessage", $"⏱ {player.Name}님 턴 시간 초과 — 자동으로 카드를 버렸습니다.");
+                var discard = player.Hand[^1];
+                player.Hand.RemoveAt(player.Hand.Count - 1);
+                r.LastDiscardedCard = discard;
+                r.DiscardPile.Add(discard);
+                r.LastActorPlayerId = timedOutPlayerId;
+                MoveToNextTurn(r, timedOutPlayerId);
+                await BroadcastRoomAsync(r);
+                await Clients.Group(roomId).SendAsync("ErrorMessage", $"⏱ {player.Name}님 턴 시간 초과 — 자동으로 카드를 버렸습니다.");
+            }
             return;
         }
     }
@@ -1192,7 +1241,7 @@ public class GameHub : Hub
         if (room == null) return;
 
         var player = room.Players
-            .FirstOrDefault(p => p.PlayerId == Context.ConnectionId);
+            .FirstOrDefault(p => p.PlayerId == PlayerKey);
         if (player == null) return;
 
         player.AllowNaturalBagaji = !player.AllowNaturalBagaji;
@@ -1204,6 +1253,6 @@ public class GameHub : Hub
         );
 
         // 룸 상태 동기화 필요하면
-        // await Clients.Group(roomId).SendAsync("RoomUpdated", room);
+        // await BroadcastRoomAsync(room);
     }
 }

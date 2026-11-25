@@ -120,6 +120,25 @@ public class BangPlayer
 
     // AI/봇 플레이어 여부 — true면 서버가 자동으로 액션 처리
     public bool IsBot { get; set; }
+
+    // 손패 장수 — 직렬화 뷰 전용 (다른 플레이어에게는 Hand 대신 이 값만 공개)
+    public int HandCount { get; set; }
+
+    /// <summary>viewer 관점의 직렬화용 뷰 — 본인이 아니면 손패 내용과 비공개 역할을 숨긴다.</summary>
+    public BangPlayer CreateViewFor(string viewerPlayerId, bool gameFinished)
+    {
+        var view = (BangPlayer)MemberwiseClone();
+        var hand = Hand ?? new List<BangCard>();
+        view.HandCount = hand.Count;
+        if (PlayerId != viewerPlayerId)
+        {
+            view.Hand = new List<BangCard>();
+            // 역할은 비밀 정보 — 공개(보안관/사망) 전이면 상수로 마스킹. 게임 종료 시 전체 공개.
+            if (!RoleRevealed && !gameFinished)
+                view.Role = BangRole.Outlaw;
+        }
+        return view;
+    }
 }
 
 public enum BangPendingType
@@ -166,7 +185,12 @@ public class BangPending
 public class BangState
 {
     public List<BangPlayer> Players { get; set; } = new();
+
+    // 🔒 덱 순서는 비공개 (펴기/드로우 예측 방지) — 클라이언트는 DeckCount만 사용
+    [System.Text.Json.Serialization.JsonIgnore]
     public List<BangCard> Deck { get; set; } = new();
+    public int DeckCount => Deck.Count;
+
     public List<BangCard> DiscardPile { get; set; } = new();
     public string CurrentTurnPlayerId { get; set; } = string.Empty;
 
@@ -197,4 +221,26 @@ public class BangState
 
     // 현재 턴 시작 시각(UTC) — 턴 타임아웃 서버 검증용. StartTurnFor에서 갱신.
     public DateTime TurnStartedAt { get; set; } = DateTime.UtcNow;
+
+    /// <summary>viewer 관점의 직렬화용 뷰 — 다른 플레이어의 손패/비공개 역할을 마스킹.</summary>
+    public BangState CreateViewFor(string viewerPlayerId)
+    {
+        var view = (BangState)MemberwiseClone();
+        view.Players = Players.Select(p => p.CreateViewFor(viewerPlayerId, IsFinished)).ToList();
+
+        // CatBalou/Panic/CanCan — 선택자는 대상 손패를 뒷면으로 보고 블라인드 선택한다.
+        // Id만 실제 값으로 남기고 내용(Type/Suit/Rank)은 상수로 익명화 → 선택 가능 + 내용 비공개.
+        if (Pending?.Type == BangPendingType.CardPickFromTarget
+            && Pending.SourcePlayerId == viewerPlayerId
+            && Pending.TargetPlayerId is string targetId && targetId != viewerPlayerId)
+        {
+            var maskedTarget = view.Players.FirstOrDefault(p => p.PlayerId == targetId);
+            var realTarget = Players.FirstOrDefault(p => p.PlayerId == targetId);
+            if (maskedTarget != null && realTarget != null)
+                maskedTarget.Hand = realTarget.Hand
+                    .Select(c => new BangCard { Id = c.Id, Type = BangCardType.Bang, Suit = CardSuit.Hearts, Rank = 0 })
+                    .ToList();
+        }
+        return view;
+    }
 }
