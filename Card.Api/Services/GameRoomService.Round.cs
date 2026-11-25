@@ -12,6 +12,8 @@ public partial class GameRoomService
     {
         if (!_rooms.TryGetValue(roomId, out var room)) return;
         if (room.IsStarted) return;
+        if (room.Players.Count < 2)
+            throw new InvalidOperationException("2명 이상이어야 게임을 시작할 수 있습니다.");
 
         foreach (var p in room.Players)
             p.RoundTurnCount = 0;
@@ -29,6 +31,9 @@ public partial class GameRoomService
         room.StopCallerId = "";
         room.WinnerName = null;
         room.WinnerPlayerId = string.Empty;
+        room.GameWinnerIds.Clear();
+        room.GameWinnerName = null;
+        room.StatsRecorded = false;
 
         // 전체 게임 시작 시에만 누적 점수 0으로 리셋
         foreach (var p in room.Players) {
@@ -171,6 +176,7 @@ public partial class GameRoomService
         {
             deck.Add(new PlayingCard
             {
+                Type = CardType.Joker,
                 Suit = "Joker",
                 Rank = "Joker",
                 Color = "Black"
@@ -191,7 +197,19 @@ public partial class GameRoomService
         {
             room.IsFinished = true;
             room.IsStarted = false;
+            SetGameWinners(room);
         }
+    }
+
+    // 게임 전체 승자 확정 — 총점 최저(동점이면 전원). excludePlayerId(기권자)는 후보에서 제외
+    private static void SetGameWinners(GameRoom room, string? excludePlayerId = null)
+    {
+        var candidates = room.Players.Where(p => p.PlayerId != excludePlayerId).ToList();
+        if (candidates.Count == 0) return;
+        int best = candidates.Min(p => p.TotalScore);
+        var winners = candidates.Where(p => p.TotalScore == best).ToList();
+        room.GameWinnerIds = winners.Select(p => p.PlayerId).ToList();
+        room.GameWinnerName = string.Join(", ", winners.Select(p => p.Name));
     }
 
 }

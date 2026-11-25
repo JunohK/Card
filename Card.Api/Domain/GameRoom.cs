@@ -74,6 +74,14 @@ public class GameRoom
     public int CurrentRound { get; set; }
     public int RoundTurnSequence { get; set; } = 0;
 
+    // 게임 전체 승자(총점 최저, 동점이면 전원). 게임 종료 시 서비스가 설정 — 전적(Wins) 집계·최종 결과창용
+    public List<string> GameWinnerIds { get; set; } = new();
+    public string? GameWinnerName { get; set; }
+
+    // 전적 DB 반영 완료 플래그 — 게임당 1회만 집계 (클라이언트 호출 기반 중복 집계 방지)
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool StatsRecorded { get; set; }
+
     // 조커 갯수 (0, 1, 2). 방장이 RoomPage에서 변경 가능. 기본값 1
     public int JokerCount { get; set; } = 1;
 
@@ -111,10 +119,15 @@ public class GameRoom
     public bool IsStopDeclared { get; set; } = false;
     public string StopCallerId { get; set; } = "";
 
-    // 뻥/가로채기 윈도우 atomic flag (0=닫힘, 1=열림)
-    // Interlocked.CompareExchange로만 접근 — 동시 InterruptDiscard/InterceptWin race 방지용
+    // 뻥/가로채기 윈도우 토큰 (0=닫힘, 그 외=열린 윈도우의 고유 토큰)
+    // Interlocked로만 접근 — 동시 InterruptDiscard race 방지 + 뒤늦은 마감이 다음 윈도우를 닫지 못하게 토큰 비교
     [System.Text.Json.Serialization.JsonIgnore]
     public int PungWindowFlag;
+    // 윈도우 토큰 발급 시퀀스 (PlayCard가 열 때마다 증가)
+    [System.Text.Json.Serialization.JsonIgnore]
+    public int PungWindowSeq;
+    // 클라이언트용: 뻥 윈도우가 열려 있는가 (뻥 버튼 활성·윈도우 중 추가 뽑기 차단 기준)
+    public bool IsPungWindowOpen => PungWindowFlag != 0;
 
     /// <summary>viewer 관점의 직렬화용 뷰 — 다른 플레이어의 손패/뱅 비공개 정보를 마스킹한 얕은 복사본.
     /// MemberwiseClone 기반이라 새 필드가 추가돼도 자동 포함된다 (수동 프로젝션의 필드 누락 방지).</summary>

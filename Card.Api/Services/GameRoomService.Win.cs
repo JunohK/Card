@@ -59,12 +59,8 @@ public partial class GameRoomService
         // 4. 라운드 점수 히스토리 기록
         RecordRoundScore(room);
 
-        // 5. 전체 게임 종료 체크
-        if (room.CurrentRound >= room.MaxRounds)
-        {
-            room.IsFinished = true;
-            room.IsStarted = false;
-        }
+        // 5. 전체 게임 종료 체크 (게임 전체 승자 확정 포함)
+        CheckAndEndFullGame(room);
 
         return true;
     }
@@ -77,8 +73,10 @@ public partial class GameRoomService
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
         if (player == null) return;
 
-        // 턴 및 카드 수 검증 (카드를 뽑아 손패가 3장 또는 6장일 때만 가능)
-        if (room.CurrentTurnPlayerId == player.PlayerId && (player.Hand.Count == 3 || player.Hand.Count == 6))
+        // 내 턴 + 카드를 뽑아 3장인 상태 + 패가 2장인 사람이 본인 포함 2명 이상 (클라이언트 STOP 버튼 조건과 동일)
+        bool isActionPhase = room.CurrentTurnPlayerId == player.PlayerId && player.Hand.Count == 3;
+        bool othersWithTwo = room.Players.Any(p => p.PlayerId != player.PlayerId && p.Hand.Count == 2);
+        if (isActionPhase && othersWithTwo)
         {
             room.IsStopDeclared = true;
             room.StopCallerId = player.PlayerId;
@@ -86,48 +84,6 @@ public partial class GameRoomService
             // 서비스에서는 상태만 변경합니다. 
             // 알림 메시지는 Hub에서 처리하거나 room 상태를 통해 클라이언트에 전달됩니다.
         }
-    }
-
-    public bool DeclarePung(string roomId, string playerId)
-    {
-        var room = GetRoom(roomId);
-        if (room == null || room.IsRoundEnded || room.IsFinished) return false;
-        if (room.LastDiscardedCard == null) return false;
-
-        var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
-        if (player == null) return false;
-
-        // 자기 턴에 자기가 낸 카드로 뻥은 불가
-        if (room.LastActorPlayerId == playerId) return false;
-
-        // 손패 검증: 마지막 버려진 카드와 같은 랭크의 페어를 만들 수 있어야 함
-        if (!CanDeclarePung(player, room.LastDiscardedCard)) return false;
-
-        room.CurrentTurnPlayerId = playerId;
-        Console.WriteLine($"[PUNG] Room: {roomId}, Player: {player.Name} declared Pung!");
-        return true;
-    }
-
-    // 뻥 선언 자격 검증 (Hub.CheckCanIntercept와 동일 규칙)
-    private static bool CanDeclarePung(Player player, PlayingCard playedCard)
-    {
-        // 3.1: 손패 2장이 페어(또는 조커 포함)이고 버려진 카드와 매치
-        if (player.Hand.Count == 2)
-        {
-            bool isPair = player.Hand[0].Rank == player.Hand[1].Rank || player.Hand.Any(IsJoker);
-            bool matchesPlayed = player.Hand.Any(c => c.Rank == playedCard.Rank) || IsJoker(playedCard);
-            if (isPair && matchesPlayed) return true;
-        }
-
-        // 뻥 룰: 손패 5장이고 같은 랭크 + 조커 합쳐 2장 이상
-        if (player.Hand.Count == 5)
-        {
-            int matchingRank = player.Hand.Count(c => c.Rank == playedCard.Rank);
-            int jokers = player.Hand.Count(IsJoker);
-            if (matchingRank + jokers >= 2) return true;
-        }
-
-        return false;
     }
 
     // STOP 전용 종료 처리
@@ -184,27 +140,6 @@ public partial class GameRoomService
         // 전체 게임 종료 조건 체크 (점수 초과 등)
         CheckAndEndFullGame(room);
     }
-
-    // private void StartNewRound(GameRoom room)
-    // {
-    //     // 덱 다시 생성 및 셔플
-    //     room.Deck = CreateNewDeck(); 
-    //     room.DiscardPile.Clear();
-    //     room.IsRoundEnded = false;
-
-    //     // 플레이어들에게 카드 분배 (예: 2장씩)
-    //     foreach (var player in room.Players)
-    //     {
-    //         player.Hand.AddRange(room.Deck.Take(2));
-    //         room.Deck.RemoveRange(0, 2);
-    //     }
-        
-    //     // 첫 번째 플레이어 결정 및 카드 1장 더 주기
-    //     var firstPlayer = room.Players[0];
-    //     firstPlayer.Hand.Add(room.Deck[0]);
-    //     room.Deck.RemoveAt(0);
-    //     room.CurrentTurnPlayerId = firstPlayer.PlayerId;
-    // }
 
     public (bool isBagajiWin, string? winnerId, string? loserId) CheckBagajiWin(string discardedRank, string discarderId, List<Player> allPlayers)
     {
@@ -337,7 +272,9 @@ public partial class GameRoomService
         // 기권 시 전광판만 띄움 (IsStarted는 유지하여 아직 GamePage에 머물게 함)
         room.IsFinished = true;
         room.WinnerName = surrenderPlayer != null ? $"{surrenderPlayer.Name} (기권)" : "게임 종료";
-        
+        // 기권자는 제외하고 총점 최저가 게임 승자
+        SetGameWinners(room, excludePlayerId: playerId);
+
         // 요청하신 대로 패 점수 계산 없이 현재 TotalScore 유지
     }
 
@@ -346,7 +283,7 @@ public partial class GameRoomService
         if (room.CurrentTurnPlayerId != player.PlayerId)
             return false;
 
-        // ✅ "이 사람이 턴을 한 번이라도 끝냈는가"
-        return player.RoundTurnCount >= 1;
+        // 클라이언트 승리선언 버튼 조건과 동일 (턴 카운트 2 이상)
+        return player.RoundTurnCount >= 2;
     }
 }

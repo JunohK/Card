@@ -124,8 +124,8 @@ public class OmokGameService
         return new OmokPlaceResult { Success = true };
     }
 
-    /// <summary>기권. 호출자의 반대 색이 승리.</summary>
-    public bool ResignOmok(string roomId, string playerId)
+    /// <summary>기권. 호출자의 반대 색이 승리. reason은 종료 사유 표시용(기본 "기권", 퇴장 시 "상대 퇴장").</summary>
+    public bool ResignOmok(string roomId, string playerId, string reason = "기권")
     {
         var room = _roomService.GetRoom(roomId);
         if (room?.Omok == null) return false;
@@ -138,7 +138,7 @@ public class OmokGameService
         else if (state.WhitePlayerId == playerId) { winnerColor = StoneColor.Black; winnerId = state.BlackPlayerId; }
         else return false;
 
-        EndGame(room, state, winnerColor, winnerId, "기권", new List<int[]>());
+        EndGame(room, state, winnerColor, winnerId, reason, new List<int[]>());
         return true;
     }
 

@@ -372,7 +372,8 @@ const RoomPage: React.FC = () => {
                             className="start-btn"
                             disabled={
                                 (isOmok && room.players.length !== 2) ||
-                                (isBang && (room.players.length < 4 || room.players.length > 7))
+                                (isBang && (room.players.length < 4 || room.players.length > 7)) ||
+                                (!isOmok && !isBang && room.players.length < 2)
                             }
                         >
                             {isOmok
@@ -381,6 +382,8 @@ const RoomPage: React.FC = () => {
                                 ? (room.players.length >= 4 && room.players.length <= 7
                                     ? `뱅 게임 시작 (${room.players.length}명)`
                                     : `뱅 시작 대기 (${room.players.length}/4~7)`)
+                                : room.players.length < 2
+                                ? `시작 대기 (${room.players.length}/2명 이상)`
                                 : `${currentRounds}라운드 게임 시작`}
                         </button>
                     ) : (

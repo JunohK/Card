@@ -4,7 +4,6 @@ using Card.Api.Services;
 using Card.Api.Models;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.AspNetCore.Identity.Data;
 
 namespace Card.Api.Controllers;
 

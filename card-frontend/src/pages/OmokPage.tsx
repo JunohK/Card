@@ -78,8 +78,16 @@ export default function OmokPage() {
         let mounted = true;
 
         const setup = async () => {
-            await ensureConnection();
-            // 새로고침 케이스 — 방 정보 다시 받아오기 위해 join 호출은 RoomPage에서 처리됨
+            // 새로고침 복구: 연결 보장 → 방 재입장(그룹 재가입 + RoomUpdated·금수 자리 수신)
+            const ok = await ensureConnection();
+            if (!ok || !roomId) return;
+            try {
+                const savedPwd = sessionStorage.getItem(`room_pwd_${roomId}`) || "";
+                await connection.invoke("JoinRoom", roomId, savedPwd === "" ? null : savedPwd);
+            } catch (err) {
+                console.error("방 재입장 실패:", err);
+                if (mounted) navigate('/lobby', { replace: true });
+            }
         };
 
         const onRoomUpdated = (updatedRoom: any) => {

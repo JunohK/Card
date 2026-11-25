@@ -121,6 +121,9 @@ public partial class GameRoomService
             else
             {
                 // 완전히 처음 들어오는 유저인 경우에만 새로 추가합니다.
+                // 진행 중인 게임에는 새 플레이어가 끼어들 수 없음 (오목은 관전 허용)
+                if (room.IsStarted && room.GameMode != GameMode.Omok)
+                    throw new InvalidOperationException("게임이 진행 중인 방에는 입장할 수 없습니다.");
                 if (room.Players.Count >= 7)
                     throw new Exception("방 인원이 가득 찼습니다.");
 
@@ -152,6 +155,8 @@ public partial class GameRoomService
 
         lock (room)
         {
+            int leavingIndex = room.Players.FindIndex(p => p.PlayerId == playerId);
+            var leaving = leavingIndex >= 0 ? room.Players[leavingIndex] : null;
             room.Players.RemoveAll(p => p.PlayerId == playerId);
 
             if (room.Players.Count == 0)
@@ -165,6 +170,27 @@ public partial class GameRoomService
             if (room.HostPlayerId == playerId && room.Players.Count > 0)
             {
                 room.HostPlayerId = room.Players[0].PlayerId;
+            }
+
+            // 진행 중인 Cards 게임에서 나간 경우 — 턴이 멈추거나 혼자 남은 채 계속되지 않도록 정리
+            if (leaving != null && room.GameMode == GameMode.Cards && room.IsStarted && !room.IsFinished)
+            {
+                if (room.Players.Count < 2)
+                {
+                    // 상대가 없으면 게임 종료. 남은 사람 중 총점 최저가 승자
+                    room.IsFinished = true;
+                    room.IsStarted = false;
+                    room.WinnerName = $"{leaving.Name} (퇴장)";
+                    SetGameWinners(room);
+                }
+                else if (room.CurrentTurnPlayerId == playerId)
+                {
+                    // 나간 사람의 턴이었으면 원래 순서상 다음 자리로 턴 이동 (허브 MoveToNextTurn과 동일 규칙)
+                    var next = room.Players[leavingIndex % room.Players.Count];
+                    room.CurrentTurnPlayerId = next.PlayerId;
+                    room.TurnStartedAt = DateTime.UtcNow;
+                    next.RoundTurnCount++;
+                }
             }
         }
 

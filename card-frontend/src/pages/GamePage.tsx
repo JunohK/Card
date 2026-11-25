@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { connection, setActiveRoom } from "../signalr/connection";
+import { connection, ensureConnection, setActiveRoom } from "../signalr/connection";
 import { getMyPlayerId } from "../auth/authStorage";
 import { useTurnTimeout } from "../util/useTurnTimeout";
 import { playSound } from "../sound/sound";
@@ -55,6 +55,9 @@ export default function GamePage() {
     });
     const [isChatMinimized, setIsChatMinimized] = useState(true); // false로 하면 최소화가 기본값
     const [hasNewMessage, setHasNewMessage] = useState(false);
+    // 채팅 접힘 상태를 ref로도 유지 — 구독 effect가 isChatMinimized에 의존해 토글마다 재구독·재입장하지 않도록
+    const isChatMinimizedRef = useRef(isChatMinimized);
+    useEffect(() => { isChatMinimizedRef.current = isChatMinimized; }, [isChatMinimized]);
     const [, setWinnerHand] = useState<any[]>([]);
     const [, setWinnerName] = useState<string | null>(null);
     const [chatWidth, setChatWidth] = useState(260);
@@ -245,21 +248,16 @@ export default function GamePage() {
 
             if (gameFinished) {
                 setShowRoundResult(false);
-                try {
-                    // 서버에 게임 결과 반영 요청
-                    await connection.invoke("UpdateGameResult", roomId);
-                } catch (err) {
-                    console.error("DB 업데이트 요청 실패:", err);
-                }
-                // 게임 결과 통계 — localStorage
-                const winnerName = data.winnerName || data.WinnerName || "승자 미확정";
+                // 전적 DB 반영은 서버가 게임 종료 시 1회 수행 (클라이언트 호출 없음 — 중복 집계 방지)
+                // 게임 결과 통계 — localStorage (게임 전체 승자 = 총점 최저 기준)
+                const gameWinnerIds: string[] = data.gameWinnerIds || data.GameWinnerIds || [];
+                const winnerName = data.gameWinnerName || data.GameWinnerName || data.winnerName || data.WinnerName || "승자 미확정";
                 const winType = data.lastWinType || data.LastWinType || "";
-                const winnerId = data.winnerPlayerId || data.WinnerPlayerId;
                 pushHistory({
                     mode: "Cards",
                     winnerName,
                     detail: winType,
-                    isMyWin: winnerId === myId
+                    isMyWin: gameWinnerIds.includes(myId ?? "")
                 });
             } else if (roundEnded) {
                 setShowRoundResult(true);
@@ -279,7 +277,7 @@ export default function GamePage() {
 
         const onReceiveMessage = (user: string, message: string) => {
             setMessages(prev => [...prev, `${user} : ${message}`]);
-            if (isChatMinimized) {
+            if (isChatMinimizedRef.current) {
                 setHasNewMessage(true);
             }
         };
@@ -300,7 +298,6 @@ export default function GamePage() {
 
         if (!isSubscribed.current) {
             connection.on("RoomUpdated", onUpdate);
-            connection.on("ReshuffleDeck", onUpdate);
             connection.on("ReceiveMessage", onReceiveMessage);
             connection.on("ConnectedUser", onConnectedUser);
 
@@ -327,10 +324,6 @@ export default function GamePage() {
             connection.on("GameTerminated", onGameTerminated);
             connection.on("ExitToRoom", onExitToRoom);
 
-            connection.on("ReshuffleDeck", (msg) => {
-                console.log(msg);
-            });
-
             connection.on("ErrorMessage", (msg) => {
                 setErrorMsg(msg);
                 setTimeout(() => setErrorMsg(null), 3000); 
@@ -339,14 +332,27 @@ export default function GamePage() {
             isSubscribed.current = true;
         }
 
-        connection.invoke("GetRoom", roomId).then(data => {
-            if (data) {
-                setGame(data);
-                const playersArr = data.players || data.Players || [];
-                const me = playersArr.find((p: any) => (p.playerId || p.PlayerId) === myId);
-                prevHandRef.current = (me?.hand || me?.Hand || []).map((c: any) => getCardKey(c));
+        // 새로고침 복구: 연결 보장 → 방 재입장(그룹 재가입) → 현재 상태 로드
+        const loadRoom = async () => {
+            try {
+                const ok = await ensureConnection();
+                if (!ok) throw new Error("서버에 연결할 수 없습니다.");
+                const savedPwd = sessionStorage.getItem(`room_pwd_${roomId}`) || "";
+                await connection.invoke("JoinRoom", roomId, savedPwd === "" ? null : savedPwd);
+                const data = await connection.invoke("GetRoom", roomId);
+                if (data) {
+                    setGame(data);
+                    const playersArr = data.players || data.Players || [];
+                    const me = playersArr.find((p: any) => (p.playerId || p.PlayerId) === myId);
+                    prevHandRef.current = (me?.hand || me?.Hand || []).map((c: any) => getCardKey(c));
+                }
+            } catch (err) {
+                console.error("방 상태 로드 실패:", err);
+                setErrorMsg("방 정보를 불러오지 못했습니다. 로비로 돌아갑니다.");
+                setTimeout(() => navigate('/lobby', { replace: true }), 1500);
             }
-        });
+        };
+        loadRoom();
 
         // 프로필 정보 로드
         connection.invoke("GetMyProfile").then(data => {
@@ -358,7 +364,7 @@ export default function GamePage() {
             connection.off("ConnectedUser", onConnectedUser);
             unsubscribeAll();
         };
-    }, [roomId, myId, navigate, isChatMinimized]);
+    }, [roomId, myId, navigate]);
 
     const handleExit = () => {
         if (window.confirm("정말 기권하시겠습니까? 전체 게임이 종료되며 대기실로 이동합니다.")) {
@@ -428,7 +434,9 @@ export default function GamePage() {
     const discardPile = game.discardPile || game.DiscardPile || [];
 
     const myHand = me?.hand || me?.Hand || [];
-    const canDraw = isMyTurn && (myHand.length === 2 || myHand.length === 5);
+    // 뻥 윈도우(상대가 버린 뒤 3초)가 열려 있으면 턴이 아직 안 넘어간 상태라도 뽑을 수 없음 (서버도 거부)
+    const pungWindowOpen = !!(game.isPungWindowOpen ?? game.IsPungWindowOpen);
+    const canDraw = isMyTurn && !pungWindowOpen && (myHand.length === 2 || myHand.length === 5);
     const canDiscardOrWin = isMyTurn && (myHand.length === 3 || myHand.length === 6);
 
     // 최종 판단 로직
@@ -446,6 +454,9 @@ export default function GamePage() {
     const canDeclareWin = checkCanDeclareWin();
 
     const checkCanPung = () => {
+        // 0. 서버가 뻥 윈도우를 연 동안에만 가능 (뻥으로 버린 카드 등 윈도우 밖에서는 버튼이 켜지지 않도록)
+        if (!pungWindowOpen) return false;
+
         // 1. 기본 조건: 내 손에 카드가 5장일 때만 가능
         const currentHandCount = myHand.length;
         if (currentHandCount !== 5) return false;
@@ -936,10 +947,11 @@ return (
                                 {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "기권 승리자" : "최종 우승자"}
                             </span>
                             <span style={{ color: '#ffffff', fontSize: '2rem', fontWeight: 'bold' }}>
-                                👑 {game.winnerName || game.WinnerName || "-"}
+                                👑 {game.gameWinnerName || game.GameWinnerName || game.winnerName || game.WinnerName || "-"}
                             </span>
 
-                            {/* 🏆 최종 우승자의 카드 노출 */}
+                            {/* 🏆 마지막 라운드 승자의 카드 — 그 사람이 게임 승자일 때만 노출 (다른 사람 패를 우승자 것처럼 보이지 않도록) */}
+                            {(game.gameWinnerIds ?? game.GameWinnerIds ?? []).includes(game.winnerPlayerId ?? game.WinnerPlayerId) && (
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
                                 {sortCards(game.winnerHand || []).map((card: any, i: number) => {
                                     const imageSrc = getCardImageSrc(card.rank || card.Rank, card.suit || card.Suit);
@@ -960,6 +972,7 @@ return (
                                     );
                                 })}
                             </div>
+                            )}
 
                             <div style={{ color: '#f1c40f', marginTop: '10px' }}>
                                 판정 족보: {(game.winnerName || game.WinnerName || "").includes("(기권)") ? "상대방 기권" : (game.lastWinType || game.LastWinType || "게임 종료")}

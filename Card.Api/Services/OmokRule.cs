@@ -109,7 +109,8 @@ public static class OmokRule
         return false;
     }
 
-    // 활삼: 연속 3개 + 양쪽이 비어있음 (단순화 — 점프형 X X . X 제외)
+    // 활삼: 연속 3개 + 양쪽 인접이 비어 있고, 한쪽이라도 그 바깥 칸까지 비어 열린 4(.XXXX.)가 될 수 있는 경우
+    // (단순화 — 점프형 X X . X 제외. O.XXX.O 처럼 양 바깥이 막혀 열린 4가 불가능하면 활삼이 아님)
     private static bool FormsOpenThree(StoneColor[][] board, int row, int col, int dr, int dc, StoneColor color)
     {
         var line = CountLine(board, row, col, dr, dc, color);
@@ -117,17 +118,34 @@ public static class OmokRule
 
         var first = line[0];
         var last = line[^1];
-        int br = first[0] - dr, bc = first[1] - dc;
-        int ar = last[0] + dr, ac = last[1] + dc;
+        int br = first[0] - dr, bc = first[1] - dc;   // 앞쪽 인접 칸
+        int ar = last[0] + dr, ac = last[1] + dc;     // 뒤쪽 인접 칸
+        if (!IsEmpty(board, br, bc) || !IsEmpty(board, ar, ac)) return false;
 
-        return InRange(br, bc) && board[br][bc] == StoneColor.Empty
-            && InRange(ar, ac) && board[ar][ac] == StoneColor.Empty;
+        // 어느 한쪽이든 두 칸 바깥이 비어 있어야 열린 4가 가능
+        return IsEmpty(board, br - dr, bc - dc) || IsEmpty(board, ar + dr, ac + dc);
     }
 
-    // 사: 연속 4개 (한 쪽이라도 비어있으면 다음 수에 5목 가능)
+    // 사: 연속 4개 중 한쪽이라도 인접 칸이 비어 있어 다음 수에 정확히 5목이 되는 경우
+    // (양쪽이 돌/벽으로 막힌 OXXXXO 는 5목이 될 수 없으므로 사가 아님. 빈칸 너머가 같은 색이면 6목이 되므로 제외)
     private static bool FormsFour(StoneColor[][] board, int row, int col, int dr, int dc, StoneColor color)
     {
         var line = CountLine(board, row, col, dr, dc, color);
-        return line.Count == 4;
+        if (line.Count != 4) return false;
+
+        var first = line[0];
+        var last = line[^1];
+        return CanCompleteFive(board, first[0] - dr, first[1] - dc, -dr, -dc, color)
+            || CanCompleteFive(board, last[0] + dr, last[1] + dc, dr, dc, color);
+    }
+
+    private static bool IsEmpty(StoneColor[][] board, int r, int c) => InRange(r, c) && board[r][c] == StoneColor.Empty;
+
+    // (r,c)가 비어 있고 그 너머(dr,dc 방향) 칸이 같은 색이 아니면, (r,c)에 두어 정확히 5목을 완성할 수 있다
+    private static bool CanCompleteFive(StoneColor[][] board, int r, int c, int dr, int dc, StoneColor color)
+    {
+        if (!IsEmpty(board, r, c)) return false;
+        int r2 = r + dr, c2 = c + dc;
+        return !(InRange(r2, c2) && board[r2][c2] == color);
     }
 }

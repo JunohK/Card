@@ -93,7 +93,6 @@ builder.Services.AddScoped<PasswordHashService>();
 builder.Services.AddSingleton<GameRoomService>();
 builder.Services.AddSingleton<OmokGameService>();
 builder.Services.AddSingleton<BangGameService>();
-builder.Services.AddSingleton<PlayerConnectionService>();
 
 var app = builder.Build();
 

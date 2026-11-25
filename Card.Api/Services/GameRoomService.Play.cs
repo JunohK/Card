@@ -21,19 +21,25 @@ public partial class GameRoomService
     public GameRoom DrawCard(string roomId, string playerId)
     {
         var room = GetRoom(roomId);
-        if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId) 
+        if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId)
             return room;
 
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
-        if (player == null || room.Deck.Count == 0) return room;
+        if (player == null) return room;
 
         // 🔹 손패가 3장 또는 6장이면 더 이상 뽑을 수 없음
         if (player.Hand.Count == 3 || player.Hand.Count == 6) return room;
 
+        // 🔹 뻥 윈도우가 열려 있는 동안(방금 버린 직후, 턴 이동 전)은 뽑을 수 없음 — 윈도우 중 추가 뽑기 방지
+        if (room.PungWindowFlag != 0) return room;
+
+        // 🔹 덱이 비면 버림더미(바닥 마지막 1장 제외)를 섞어 자동 보충
+        if (room.Deck.Count == 0) RefillDeckFromDiscard(room);
+        if (room.Deck.Count == 0) return room;
+
         // 플레이어 턴 횟수 확인하기(승리선언 하기위함)
         player.RoundTurnCount++;
 
-        // [수정] 5장뿐만 아니라 2장일 때도 뽑을 수 있도록 조건 완화 (혹은 조건 삭제)
         // 1장을 뽑으면 3장 또는 6장이 됨
         var newCard = room.Deck[0];
         room.Deck.RemoveAt(0);
@@ -44,79 +50,74 @@ public partial class GameRoomService
         return room;
     }
 
-    public GameRoom PlayCard(string roomId, string playerId, PlayingCard card)
+    /// <summary>카드 1장 버림. 실제로 버렸으면 true, 내 턴이 아니거나 손에 없는 카드면 false(상태 변경 없음). 턴 이동은 하지 않는다.</summary>
+    public bool PlayCard(string roomId, string playerId, PlayingCard card)
     {
         var room = GetRoom(roomId);
-        if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId) 
-            return room;
+        if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId)
+            return false;
 
         var player = room.Players.FirstOrDefault(p => p.PlayerId == playerId);
-        if (player == null) return room;
+        if (player == null) return false;
 
         var cardToPlay = player.Hand.FirstOrDefault(c =>
             (c.Suit == card.Suit && c.Rank == card.Rank) ||
             (IsJoker(c) && IsJoker(card)));
-        
-        if (cardToPlay != null)
+        if (cardToPlay == null) return false;
+
+        player.Hand.Remove(cardToPlay);
+        room.LastDiscardedCard = cardToPlay;
+        room.DiscardPile.Add(cardToPlay);
+
+        // 🚨 [수정] 바가지 체크 로직을 단일화하여 정확한 loserId를 전달합니다.
+        var result = CheckBagajiWin(cardToPlay.Rank, playerId, room.Players);
+        if (result.isBagajiWin)
         {
-            player.Hand.Remove(cardToPlay);
-            room.LastDiscardedCard = cardToPlay;
-            room.DiscardPile.Add(cardToPlay);
-
-            // 🚨 [수정] 바가지 체크 로직을 단일화하여 정확한 loserId를 전달합니다.
-            var result = CheckBagajiWin(cardToPlay.Rank, playerId, room.Players);
-            if (result.isBagajiWin)
+            var winner = room.Players.FirstOrDefault(p => p.PlayerId == result.winnerId);
+            if (winner != null)
             {
-                var winner = room.Players.FirstOrDefault(p => p.PlayerId == result.winnerId);
-                if (winner != null)
-                {
-                    // 프론트 모달 표시용 텍스트 설정
-                    room.LastWinType = $"🔥 바가지 승리! ({winner.Name})";
-                    // 점수 계산 실행 (result.loserId는 카드를 버린 playerId와 동일함)
-                    ApplyBagajiWin(room, winner, result.loserId!);
-                    return room;
-                }
+                // 프론트 모달 표시용 텍스트 설정
+                room.LastWinType = $"🔥 바가지 승리! ({winner.Name})";
+                // 점수 계산 실행 (result.loserId는 카드를 버린 playerId와 동일함)
+                ApplyBagajiWin(room, winner, result.loserId!);
+                return true;
             }
-            
-            // 🛑 STOP 선언 처리
-            if (room.IsStopDeclared && room.StopCallerId == playerId)
-            {
-                ApplyStopWin(room, player);
-                return room;
-            }
-
-            room.LastActorPlayerId = playerId;
-            // 턴 넘기기 로직은 허브의 Delay 이후 혹은 규칙에 따라 별도 처리
         }
-        
-        return room;
+
+        // 🛑 STOP 선언 처리
+        if (room.IsStopDeclared && room.StopCallerId == playerId)
+        {
+            ApplyStopWin(room, player);
+            return true;
+        }
+
+        room.LastActorPlayerId = playerId;
+        // 턴 넘기기 로직은 허브의 Delay 이후 혹은 규칙에 따라 별도 처리
+        return true;
+    }
+
+    /// <summary>버림더미를 덱으로 되돌린다. 바닥의 마지막 카드(뻥·바가지 기준)는 남긴다. 되돌린 장수 반환.</summary>
+    private static int RefillDeckFromDiscard(GameRoom room)
+    {
+        if (room.DiscardPile.Count <= 1) return 0;
+        var keep = room.DiscardPile[^1];
+        var recycled = room.DiscardPile.Take(room.DiscardPile.Count - 1).ToList();
+        room.Deck.AddRange(recycled.OrderBy(_ => Guid.NewGuid()));
+        room.DiscardPile.Clear();
+        room.DiscardPile.Add(keep);
+        room.LastDiscardedCard = keep;
+        return recycled.Count;
     }
 
     /// <summary>
-    /// 방장이 클릭하여 버려진 카드들을 다시 덱으로 셔플 (Re-Shuffle Discard Pile)
+    /// 방장이 수동으로 버림더미를 덱에 되돌림 — 자동 보충(DrawCard)의 예비 수단. 덱이 비어 있을 때만.
     /// </summary>
     public bool ReshuffleDiscardPile(string roomId, string requesterId)
     {
         var room = GetRoom(roomId);
-        
-        // 방 존재 여부, 방장 권한, 버려진 카드가 있는지 확인
-        if (room == null || room.HostPlayerId != requesterId || room.DiscardPile.Count == 0)
+        if (room == null || room.HostPlayerId != requesterId || room.Deck.Count > 0)
             return false;
-
-        lock (room)
-        {
-            // 1. 버려진 카드 더미를 덱에 추가
-            room.Deck.AddRange(room.DiscardPile);
-
-            // 2. 덱을 무작위로 다시 셔플
-            room.Deck = room.Deck.OrderBy(a => Guid.NewGuid()).ToList();
-
-            // 3. 버려진 카드 더미 비우기 및 마지막 버린 카드 초기화
-            room.DiscardPile.Clear();
-            room.LastDiscardedCard = null;
-        }
-
-        return true;
+        return RefillDeckFromDiscard(room) > 0;
     }
 
 }
