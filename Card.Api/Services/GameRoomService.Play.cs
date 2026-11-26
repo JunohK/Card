@@ -30,9 +30,6 @@ public partial class GameRoomService
         // 🔹 손패가 3장 또는 6장이면 더 이상 뽑을 수 없음
         if (player.Hand.Count == 3 || player.Hand.Count == 6) return room;
 
-        // 🔹 뻥 윈도우가 열려 있는 동안(방금 버린 직후, 턴 이동 전)은 뽑을 수 없음 — 윈도우 중 추가 뽑기 방지
-        if (room.PungWindowFlag != 0) return room;
-
         // 🔹 덱이 비면 버림더미(바닥 마지막 1장 제외)를 섞어 자동 보충
         if (room.Deck.Count == 0) RefillDeckFromDiscard(room);
         if (room.Deck.Count == 0) return room;
@@ -45,9 +42,32 @@ public partial class GameRoomService
         room.Deck.RemoveAt(0);
         player.Hand.Add(newCard);
 
+        // 🔹 뻥 대기 시간 중의 뽑기는 기록 — 그 시간 안에 뻥이 성립하면 RevertPungWindowDraw로 되돌린다
+        int windowToken = Volatile.Read(ref room.PungWindowFlag);
+        if (windowToken != 0) room.PungWindowDraw = new PungWindowDraw(windowToken, playerId, newCard);
+
         // 🔴 중요: 여기서 턴을 절대 넘기지 않음!
         // 턴은 오직 PlayCard(버리기)에서만 넘어감
         return room;
+    }
+
+    /// <summary>
+    /// 뻥 대기 시간 중에 뽑았던 카드를 되돌린다 — 그 사이에 뻥이 성립하면 그 뽑기는 무효.
+    /// 뽑은 사람이 이미 본 카드라 덱 맨 위가 아니라 섞어서 넣는다. 되돌렸으면 그 기록, 해당 없으면 null.
+    /// </summary>
+    public PungWindowDraw? RevertPungWindowDraw(GameRoom room, int windowToken)
+    {
+        var draw = room.PungWindowDraw;
+        if (draw == null || draw.Token != windowToken) return null;
+        room.PungWindowDraw = null;
+
+        var drawer = room.Players.FirstOrDefault(p => p.PlayerId == draw.PlayerId);
+        if (drawer == null || !drawer.Hand.Remove(draw.Card)) return null;
+
+        drawer.RoundTurnCount--;                       // DrawCard에서 올린 만큼만 되돌림
+        room.Deck.Add(draw.Card);
+        room.Deck = room.Deck.OrderBy(_ => Guid.NewGuid()).ToList();
+        return draw;
     }
 
     /// <summary>카드 1장 버림. 실제로 버렸으면 true, 내 턴이 아니거나 손에 없는 카드면 false(상태 변경 없음). 턴 이동은 하지 않는다.</summary>

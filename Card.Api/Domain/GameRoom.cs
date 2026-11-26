@@ -126,8 +126,11 @@ public class GameRoom
     // 윈도우 토큰 발급 시퀀스 (PlayCard가 열 때마다 증가)
     [System.Text.Json.Serialization.JsonIgnore]
     public int PungWindowSeq;
-    // 클라이언트용: 뻥 윈도우가 열려 있는가 (뻥 버튼 활성·윈도우 중 추가 뽑기 차단 기준)
+    // 클라이언트용: 뻥 대기 시간이 열려 있는가 (뻥 버튼 활성 기준)
     public bool IsPungWindowOpen => PungWindowFlag != 0;
+    // 뻥 대기 시간 중에 다음 사람이 뽑은 카드 기록 — 그 시간 안에 뻥이 성립하면 되돌린다. 클라이언트에는 보내지 않음
+    [System.Text.Json.Serialization.JsonIgnore]
+    public PungWindowDraw? PungWindowDraw { get; set; }
 
     /// <summary>viewer 관점의 직렬화용 뷰 — 다른 플레이어의 손패/뱅 비공개 정보를 마스킹한 얕은 복사본.
     /// MemberwiseClone 기반이라 새 필드가 추가돼도 자동 포함된다 (수동 프로젝션의 필드 누락 방지).</summary>
@@ -139,3 +142,6 @@ public class GameRoom
         return view;
     }
 }
+
+/// <summary>뻥 대기 시간 중에 다음 사람이 뽑은 카드 기록. Token은 그 대기 시간의 윈도우 토큰(PungWindowFlag 값)</summary>
+public sealed record PungWindowDraw(int Token, string PlayerId, PlayingCard Card);

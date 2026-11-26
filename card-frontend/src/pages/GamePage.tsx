@@ -5,13 +5,34 @@ import { getMyPlayerId } from "../auth/authStorage";
 import { useTurnTimeout } from "../util/useTurnTimeout";
 import { playSound } from "../sound/sound";
 import { pushHistory } from "../util/gameHistory";
+import { hwatuCardDataUri } from "../util/hwatuCard";
+import StatsModal from "../components/StatsModal";
+import { setSoundTogglePlacement } from "../components/soundTogglePlacement";
 import "../css/GamePage.css";
 
-const ENEMY_POSITIONS = [
-    { top: '40%', left: '10%' }, { top: '20%', left: '25%' },
-    { top: '15%', left: '50%' }, { top: '20%', left: '75%' },
-    { top: '40%', left: '90%' }, { top: '70%', left: '85%' },
-];
+// 상대 좌석 — 본인(6시)을 포함한 전원을 테이블 타원 위에 균등 배치.
+// 2명이면 12시, 3명이면 10시·2시, 4명이면 9·12·3시 … 최대 7명까지 같은 비율.
+// k = 내 다음 턴부터 시계 방향 순서(1..n), totalPlayers = 본인 포함 인원
+// 손패에서 2장 이상인 숫자마다 테두리 색 클래스를 배정 (숫자 오름차순, 6색 순환). 조커는 제외 — CSS에서 별도 금색
+type RankedCard = { rank?: string; Rank?: string };
+const buildRankGroups = (hand: RankedCard[], rankValue: (r: string) => number): Record<string, string> => {
+    const counts: Record<string, number> = {};
+    for (const c of hand) {
+        const r = String(c.rank ?? c.Rank ?? "").toUpperCase();
+        counts[r] = (counts[r] ?? 0) + 1;
+    }
+    const groups: Record<string, string> = {};
+    Object.keys(counts)
+        .filter(r => counts[r] >= 2 && r !== "JOKER" && r !== "JK")
+        .sort((a, b) => rankValue(a) - rankValue(b))
+        .forEach((r, i) => { groups[r] = `rank-group-${i % 6}`; });
+    return groups;
+};
+
+const seatPosition = (k: number, totalPlayers: number) => {
+    const theta = Math.PI + (2 * Math.PI * k) / totalPlayers; // 12시 기준 시계 방향 각도, 본인은 π(6시)
+    return { top: `${50 - 35 * Math.cos(theta)}%`, left: `${50 + 40 * Math.sin(theta)}%` };
+};
 
 type MyProfile = {
     name: string;
@@ -43,6 +64,7 @@ export default function GamePage() {
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [showScoreHistory, setShowScoreHistory] = useState(false);
     const [lastDrawnCardKey, setLastDrawnCardKey] = useState<string | null>(null);
+    const [showStats, setShowStats] = useState(false); // 결과창에서 방을 떠나지 않고 띄우는 게임 기록 모달
     const [input, setInput] = useState("");
     const [connected] = useState(connection.state === "Connected");
     const [messages, setMessages] = useState<string[]>([]);
@@ -139,6 +161,13 @@ export default function GamePage() {
             }
     }, []);
 
+    // 소리 버튼을 우측 하단 라이브챗 왼쪽에 배치 — 우측 상단은 기권 버튼 자리.
+    // 채팅 바는 bottom 20px / right 20px / 최소화 높이 45px, 버튼은 40px이라 세로 중앙 맞춤
+    useEffect(() => {
+        setSoundTogglePlacement({ bottom: 22, right: chatWidth + 30 });
+        return () => setSoundTogglePlacement(null);
+    }, [chatWidth]);
+
     // ✅ 에러 메시지 처리를 위한 상태 추가
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -170,25 +199,22 @@ export default function GamePage() {
         return (r === "JOKER" || r === "JK") ? "JK" : r;
     };
 
-    // 화투 모드일 때 카드 이미지 경로 반환 (Trump 모드면 null → 기존 텍스트 카드로 폴백)
-    // 이미지 파일이 실제로 없어도 background-image는 그냥 안 보일 뿐 텍스트는 그대로 표시됨
-    const getCardImageSrc = (rank: string, suit: string): string | null => {
-        const isHwatu = (game?.cardMode ?? game?.CardMode) === 1;
-        if (!isHwatu) return null;
+    const isHwatuMode = (game?.cardMode ?? game?.CardMode) === 1;
+
+    // 화투 모드일 때 카드 앞면 이미지(SVG data URI) 반환. 숫자·그림이 들어 있어 글자 스팬은 그리지 않는다.
+    // 화투에는 무늬(♠♥♦♣) 개념이 없으므로 같은 달 4장은 같은 그림. Trump 모드·조커는 null → 기존 텍스트 카드
+    const getCardImageSrc = (rank: string): string | null => {
+        if (!isHwatuMode) return null;
         if (!rank) return null;
 
         const r = rank.toString().toUpperCase();
-        if (r === "JOKER" || r === "JK") return "/cards/hwatu/joker.png";
+        if (r === "JOKER" || r === "JK") return null;
 
         const rankMap: Record<string, number> = { A: 1, J: 11, Q: 12 };
         const rankNum = rankMap[r] ?? parseInt(r, 10);
         if (isNaN(rankNum)) return null;
 
-        const suitMap: Record<string, string> = {
-            '♠': 'spade', '♥': 'heart', '♦': 'diamond', '♣': 'club'
-        };
-        const suitName = suitMap[suit] ?? 'spade';
-        return `/cards/hwatu/${rankNum}_${suitName}.png`;
+        return hwatuCardDataUri(rankNum);
     };
 
     const sortCards = (cards: any[]) => {
@@ -379,14 +405,9 @@ export default function GamePage() {
     };
 
     const handleReturnToRoom = () => {
-        const winnerName = game?.winnerName || game?.WinnerName || "";
-        const isGiveUp = winnerName.includes("(기권)");
         unsubscribeAll();
-        if (isGiveUp) {
-            navigate('/lobby', { replace: true });
-        } else {
-            navigate(`/room/${roomId}`, { replace: true });
-        }
+        // 기권 종료도 일반 종료와 같이 대기실로 복귀 — 전원이 로비로 나가면 빈 방이 삭제되기 때문
+        navigate(`/room/${roomId}`, { replace: true });
     };
 
     const handleNextRoundRequest = () => {
@@ -411,6 +432,18 @@ export default function GamePage() {
         (game?.turnTimeoutSec ?? game?.TurnTimeoutSec) ?? 60
     );
 
+    // 본인 차례 시작 알림 사운드 (false → true 전환)
+    // 아래 로딩 중 early return보다 앞에 있어야 함 — 훅은 매 렌더 같은 순서로 호출돼야 함
+    const currentTurnId = game?.currentTurnPlayerId || game?.CurrentTurnPlayerId;
+    const isMyTurn = !!game && currentTurnId === myId;
+    const prevIsMyTurnRef = useRef(false);
+    useEffect(() => {
+        if (isMyTurn && !prevIsMyTurnRef.current) {
+            playSound("my-turn");
+        }
+        prevIsMyTurnRef.current = isMyTurn;
+    }, [isMyTurn]);
+
     if (!game || (!game.players && !game.Players)) {
         return (
             <div className="game-container loading-state" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', color: 'white', height: '100vh' }}>
@@ -422,26 +455,32 @@ export default function GamePage() {
 
     const players = game.players || game.Players || [];
     const me = players.find((p: any) => (p.playerId || p.PlayerId) === myId);
-    const others = players.filter((p: any) => (p.playerId || p.PlayerId) !== myId);
-    const currentTurnId = game.currentTurnPlayerId || game.CurrentTurnPlayerId;
-    const isMyTurn = currentTurnId === myId;
-    // 본인 차례 시작 알림 사운드 (false → true 전환)
-    const prevIsMyTurnRef = useRef(false);
-    useEffect(() => {
-        if (isMyTurn && !prevIsMyTurnRef.current) {
-            playSound("my-turn");
-        }
-        prevIsMyTurnRef.current = isMyTurn;
-    }, [isMyTurn]);
+    // 내 다음 턴 순서부터 나열 — 좌석을 시계 방향 턴 순서대로 앉히기 위해 (턴 순서 = players 배열 순서)
+    const myIndex = players.indexOf(me); // -1이면 players에 내가 없는 경우(관전 등)
+    const others = myIndex >= 0
+        ? [...players.slice(myIndex + 1), ...players.slice(0, myIndex)]
+        : players.filter((p: any) => (p.playerId || p.PlayerId) !== myId);
     const isHost = (game.hostPlayerId || game.HostPlayerId) === myId;
     const deckCount = game.deckCount ?? game.DeckCount ?? 0;
     const lastDiscarded = game.lastDiscardedCard || game.LastDiscardedCard;
     const discardPile = game.discardPile || game.DiscardPile || [];
 
     const myHand = me?.hand || me?.Hand || [];
-    // 뻥 윈도우(상대가 버린 뒤 3초)가 열려 있으면 턴이 아직 안 넘어간 상태라도 뽑을 수 없음 (서버도 거부)
+    // 서버가 본인 뷰에만 실어 주는 족보 힌트 (6장: 지금 승리 가능 / 5장: 어떤 카드가 오면 승리)
+    const winHint = me?.winHint ?? me?.WinHint ?? null;
+    const rankGroups = buildRankGroups(myHand, getRankValue);
+    const formatOuts = (outs: Array<{ rank: string; winType: string }>) => {
+        const byType: Record<string, string[]> = {};
+        for (const o of outs) {
+            const label = o.rank === "Joker" ? "조커" : (isHwatuMode ? String(getRankValue(o.rank)) : getRankText(o.rank));
+            if (!byType[o.winType]) byType[o.winType] = [];
+            byType[o.winType].push(label);
+        }
+        return "이 카드가 오면 승리: " + Object.entries(byType).map(([type, ranks]) => `${ranks.join(", ")} → ${type}`).join(" · ");
+    };
+    // 뻥 대기 시간(상대가 버린 뒤 2초) — 뻥 버튼 활성 기준. 뽑기는 막지 않는다 (그 사이 뻥이 성립하면 서버가 뽑은 카드를 덱으로 되돌림)
     const pungWindowOpen = !!(game.isPungWindowOpen ?? game.IsPungWindowOpen);
-    const canDraw = isMyTurn && !pungWindowOpen && (myHand.length === 2 || myHand.length === 5);
+    const canDraw = isMyTurn && (myHand.length === 2 || myHand.length === 5);
     const canDiscardOrWin = isMyTurn && (myHand.length === 3 || myHand.length === 6);
 
     // 최종 판단 로직
@@ -556,7 +595,7 @@ export default function GamePage() {
 return (
         <div className={`game-container ${isMyTurn ? "my-turn-flash" : ""}`} style={{ position: 'relative', minHeight: '100vh', overflow: 'hidden' }}>
             {turnSecLeft != null && (
-                <div style={{ position: 'fixed', top: 8, right: 8, zIndex: 9999, background: turnSecLeft <= 10 ? '#dc2626' : 'rgba(30,41,59,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 8, fontWeight: 'bold', fontSize: 13 }}>
+                <div style={{ position: 'fixed', top: 58, right: 12 /* 헤더(50px) 아래, 소리 버튼 밑 — 기권 버튼을 가리지 않도록 */, zIndex: 9999, background: turnSecLeft <= 10 ? '#dc2626' : 'rgba(30,41,59,0.9)', color: '#fff', padding: '4px 10px', borderRadius: 8, fontWeight: 'bold', fontSize: 13 }}>
                     ⏱ {turnSecLeft}s
                 </div>
             )}
@@ -594,7 +633,8 @@ return (
                 }
 
                 .my-turn-flash { animation: goldGlow 1.5s infinite ease-in-out; }
-                .new-card-highlight { animation: blueGlow 0.8s ease-in-out infinite !important; z-index: 100 !important; }
+                /* z-index를 올리지 않음 — 정렬된 손패 가운데에 들어온 새 카드가 오른쪽 카드의 숫자를 덮지 않도록 */
+                .new-card-highlight { animation: blueGlow 0.8s ease-in-out infinite !important; }
                 .pung-active { animation: redPulse 0.5s infinite !important; background-color: #e74c3c !important; color: white !important; border: 2px solid white !important; cursor: pointer !important; opacity: 1 !important; z-index: 1000; }
                 .rule-btn-fixed { position: fixed; bottom: 20px; left: 20px; padding: 10px 20px; background: #f1c40f; color: #2c3e50; border: none; border-radius: 50px; font-weight: bold; cursor: pointer; z-index: 1000; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
                 .reshuffle-badge { cursor: pointer; background: #2980b9; padding: 4px 8px; border-radius: 4px; font-size: 11px; margin-top: 8px; border: none; color: white; transition: 0.2s; }
@@ -673,7 +713,7 @@ return (
                             
                             {(() => {
                                 const discardImageSrc = lastDiscarded
-                                    ? getCardImageSrc(lastDiscarded.rank || lastDiscarded.Rank, lastDiscarded.suit || lastDiscarded.Suit)
+                                    ? getCardImageSrc(lastDiscarded.rank || lastDiscarded.Rank)
                                     : null;
                                 return (
                                     <div className={`card-ui discard ${(lastDiscarded?.color || lastDiscarded?.Color) === 'Red' ? 'red' : 'black'}`}
@@ -694,12 +734,12 @@ return (
                                             backgroundRepeat: 'no-repeat'
                                         }}
                                     >
-                                        {lastDiscarded ? (
+                                        {lastDiscarded ? (discardImageSrc ? null : (
                                             <>
                                                 <span className="rank">{getRankText(lastDiscarded.rank || lastDiscarded.Rank)}</span>
                                                 <span className="suit">{(lastDiscarded.suit || lastDiscarded.Suit) === "Joker" ? "🃏" : (lastDiscarded.suit || lastDiscarded.Suit)}</span>
                                             </>
-                                        ) : <span className="empty-label">DROP</span>}
+                                        )) : <span className="empty-label">DROP</span>}
                                     </div>
                                 );
                             })()}
@@ -759,9 +799,10 @@ return (
                     {others.map((player: any, idx: number) => {
                         // 🟢 바가지 체크 — 상대 손패는 마스킹되어 내려오므로 서버가 계산한 값 사용
                         const isBagaji = player.isBagaji ?? player.IsBagaji ?? false;
+                        const seat = seatPosition(idx + 1, others.length + 1);
 
                         return (
-                            <div key={player.playerId || player.PlayerId} className={`player-box ${currentTurnId === (player.playerId || player.PlayerId) ? 'active-turn' : ''}`} style={{ position: 'absolute', top: ENEMY_POSITIONS[idx]?.top, left: ENEMY_POSITIONS[idx]?.left, transform: 'translate(-50%, -50%)' }}>
+                            <div key={player.playerId || player.PlayerId} className={`player-box ${currentTurnId === (player.playerId || player.PlayerId) ? 'active-turn' : ''}`} style={{ position: 'absolute', top: seat.top, left: seat.left, transform: 'translate(-50%, -50%)' }}>
                                 <div className="player-name">{player.name || player.Name}</div>
                                 <div className="opponent-card-back">{player.handCount ?? player.HandCount ?? (player.hand || player.Hand)?.length ?? 0}</div>
                                 
@@ -801,17 +842,27 @@ return (
                     )}
                 </div>
 
+                {winHint && (
+                    <div className={`win-hint ${winHint.isWinning ? "winning" : ""}`}>
+                        {winHint.isWinning
+                            ? `🏆 지금 승리 선언 가능 — ${winHint.winType} (${winHint.score}점)${canDeclareWin ? "" : " · 2번째 턴부터 선언 가능"}`
+                            : `💡 ${formatOuts(winHint.outs ?? [])}`}
+                    </div>
+                )}
+
                 <div className="cards-in-hand" style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'nowrap', paddingBottom: '20px' }}>
                     {sortCards(myHand).map((card: any) => {
                         const rankText = getRankText(card.rank || card.Rank);
                         const suitText = (card.suit === "Joker" || card.Suit === "Joker") ? "🃏" : (card.suit || card.Suit);
                         const cardKey = getCardKey(card);
                         const isNew = cardKey === lastDrawnCardKey;
-                        const imageSrc = getCardImageSrc(card.rank || card.Rank, card.suit || card.Suit);
+                        const imageSrc = getCardImageSrc(card.rank || card.Rank);
+                        const rankKey = String(card.rank ?? card.Rank ?? "").toUpperCase();
+                        const groupClass = (rankKey === "JOKER" || rankKey === "JK") ? "rank-group-joker" : (rankGroups[rankKey] ?? "");
 
                         return (
                             <div key={cardKey}
-                                className={`card-ui my-card ${(card.color || card.Color) === 'Red' ? 'red' : 'black'} ${isNew ? "new-card-highlight" : ""}`}
+                                className={`card-ui my-card ${(card.color || card.Color) === 'Red' ? 'red' : 'black'} ${isNew ? "new-card-highlight" : ""} ${groupClass}`}
                                 style={{
                                     width: '90px', height: '130px',
                                     background: rankText === "JK" ? "#f1c40f" : "white",
@@ -825,9 +876,20 @@ return (
                                     boxShadow: '0 4px 8px rgba(0,0,0,0.3)', transition: 'transform 0.1s'
                                 }}
                                 onClick={() => { if (canDiscardOrWin) { playSound("play-card"); connection.invoke("PlayCard", roomId, card); } }}>
-                                <span className="rank" style={{ fontWeight: 'bold', fontSize: '1.1rem' }}>{rankText}</span>
-                                <span className="suit" style={{ fontSize: '2.2rem', textAlign: 'center' }}>{suitText}</span>
-                                <span className="rank" style={{ fontWeight: 'bold', textAlign: 'right', transform: 'rotate(180deg)', fontSize: '1.1rem' }}>{rankText}</span>
+                                {/* 화투 모드(imageSrc)는 SVG 안에 숫자·무늬가 들어 있으므로 글자를 겹쳐 그리지 않음 */}
+                                {!imageSrc && (
+                                    <>
+                                        <div className="card-corners">
+                                            <span className="rank">{rankText}</span>
+                                            <span className="rank">{rankText}</span>
+                                        </div>
+                                        <span className="suit" style={{ fontSize: '2.2rem', textAlign: 'center' }}>{suitText}</span>
+                                        <div className="card-corners bottom">
+                                            <span className="rank">{rankText}</span>
+                                            <span className="rank">{rankText}</span>
+                                        </div>
+                                    </>
+                                )}
                             </div>
                         );
                     })}
@@ -865,7 +927,7 @@ return (
                                         // 카드 개별 데이터 확인용 로그
                                         if (i === 0) console.log("4. Sample Card Object:", card);
 
-                                        const imageSrc = getCardImageSrc(card.Rank || card.rank, card.Suit || card.suit);
+                                        const imageSrc = getCardImageSrc(card.Rank || card.rank);
 
                                         return (
                                             <div key={i} style={{
@@ -879,10 +941,14 @@ return (
                                                 border: '1px solid #ddd', fontSize: '0.8rem',
                                                 boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                                             }}>
-                                                <span style={{ fontWeight: 'bold' }}>{getRankText(card.Rank || card.rank)}</span>
-                                                <span style={{ fontSize: '1.2rem' }}>
-                                                    {(card.Suit || card.suit) === "Joker" ? "🃏" : (card.Suit || card.suit)}
-                                                </span>
+                                                {!imageSrc && (
+                                                    <>
+                                                        <span style={{ fontWeight: 'bold' }}>{getRankText(card.Rank || card.rank)}</span>
+                                                        <span style={{ fontSize: '1.2rem' }}>
+                                                            {(card.Suit || card.suit) === "Joker" ? "🃏" : (card.Suit || card.suit)}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
                                         );
                                     });
@@ -959,7 +1025,7 @@ return (
                             {(game.gameWinnerIds ?? game.GameWinnerIds ?? []).includes(game.winnerPlayerId ?? game.WinnerPlayerId) && (
                             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
                                 {sortCards(game.winnerHand || []).map((card: any, i: number) => {
-                                    const imageSrc = getCardImageSrc(card.rank || card.Rank, card.suit || card.Suit);
+                                    const imageSrc = getCardImageSrc(card.rank || card.Rank);
                                     return (
                                         <div key={i} style={{
                                             width: '60px', height: '85px', background: 'white', borderRadius: '6px',
@@ -1015,7 +1081,7 @@ return (
                                 확인
                             </button>
                             <button
-                                onClick={() => navigate('/lobby?showStats=1')}
+                                onClick={() => setShowStats(true)}
                                 style={{ padding: '15px 25px', background: '#7c3aed', color: 'white', borderRadius: '8px', fontWeight: 'bold', cursor: 'pointer' }}
                             >
                                 📊 통계
@@ -1025,6 +1091,8 @@ return (
                 </div>
             )}
             
+            {showStats && <StatsModal myName={myProfile.name} onClose={() => setShowStats(false)} />}
+
             {showScoreHistory && (() => {
                 const history = game.roundScoreHistory ?? game.RoundScoreHistory ?? [];
                 const playerOrder = players.map((p: any) => ({
@@ -1104,21 +1172,28 @@ return (
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(65px, 1fr))', gap: '10px' }}>
                             {sortCards(discardPile).map((card: any, idx: number) => {
-                                const imageSrc = getCardImageSrc(card.rank ?? card.Rank, card.suit ?? card.Suit);
+                                const rank = card.rank ?? card.Rank;
+                                const suit = card.suit ?? card.Suit;
+                                const isJoker = suit === "Joker";
+                                const numberOnly = isHwatuMode && !isJoker;   // 화투 모드: 그림·무늬 없이 달 숫자만
                                 return (
                                     <div key={idx} style={{
                                         background: 'white',
-                                        backgroundImage: imageSrc ? `url(${imageSrc})` : undefined,
-                                        backgroundSize: 'cover',
-                                        backgroundPosition: 'center',
-                                        backgroundRepeat: 'no-repeat',
-                                        color: (card.color ?? card.Color) === 'Red' ? 'red' : 'black',
+                                        color: numberOnly ? '#2c3e50' : ((card.color ?? card.Color) === 'Red' ? 'red' : 'black'),
                                         borderRadius: '8px',
                                         padding: '8px',
-                                        textAlign: 'center'
+                                        textAlign: 'center',
+                                        width: '54px', height: '78px', boxSizing: 'border-box',
+                                        display: 'flex', flexDirection: 'column', justifyContent: 'center'
                                     }}>
-                                        <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{getRankText(card.rank ?? card.Rank)}</div>
-                                        <div style={{ fontSize: '20px' }}>{(card.suit ?? card.Suit) === "Joker" ? "🃏" : (card.suit ?? card.Suit)}</div>
+                                        {numberOnly ? (
+                                            <div style={{ fontWeight: 'bold', fontSize: '22px' }}>{getRankValue(rank)}</div>
+                                        ) : (
+                                            <>
+                                                <div style={{ fontWeight: 'bold', fontSize: '12px' }}>{getRankText(rank)}</div>
+                                                <div style={{ fontSize: '20px' }}>{isJoker ? "🃏" : suit}</div>
+                                            </>
+                                        )}
                                     </div>
                                 );
                             })}

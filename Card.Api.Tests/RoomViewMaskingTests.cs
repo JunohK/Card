@@ -48,7 +48,25 @@ public class RoomViewMaskingTests
         Assert.Contains("\"DeckCount\":3", json);
         Assert.DoesNotContain("\"PungWindowFlag\"", json);
         Assert.DoesNotContain("\"PungWindowSeq\"", json);
+        Assert.DoesNotContain("\"PungWindowDraw\"", json);   // 대기 시간 중 뽑은 카드 기록은 비공개
         Assert.Contains("\"IsPungWindowOpen\":false", json);
+    }
+
+    [Fact]
+    public void 족보_힌트는_본인_뷰에만_실린다()
+    {
+        var (svc, room) = Rooms.Cards(2);
+        svc.StartGame(room.RoomId, 3);
+        Rooms.P(room, "p1").Hand = Hand("5", "6", "7", "8", "9");
+
+        var mine = svc.CreateViewFor(room, "p1");
+        var theirs = svc.CreateViewFor(room, "p2");
+
+        var myHint = mine.Players.Single(p => p.PlayerId == "p1").WinHint;
+        Assert.NotNull(myHint);
+        Assert.Contains(myHint!.Outs, o => o.Rank == "4");
+        Assert.Null(theirs.Players.Single(p => p.PlayerId == "p1").WinHint);   // 상대 뷰에서는 내 힌트가 없음
+        Assert.Null(room.Players.Single(p => p.PlayerId == "p1").WinHint);     // 원본에는 기록하지 않음
     }
 
     [Fact]

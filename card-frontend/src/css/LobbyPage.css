@@ -71,8 +71,8 @@
 
 .logout-btn {
     background: transparent;
-    border: 1px solid #ef4444;
-    color: #ef4444;
+    border: 1px solid rgba(239, 68, 68, 0.55);
+    color: #e08484;
     padding: 0.5rem 1rem;
     border-radius: 0.5rem;
     cursor: pointer;
@@ -82,6 +82,17 @@
 
 .logout-btn:hover {
     background: rgba(239, 68, 68, 0.1);
+}
+
+/* 통계 버튼 — 로그아웃 버튼 모양에 차분한 보라색 */
+.stats-btn {
+    background: #3b2f63;
+    border-color: #5b4b8a;
+    color: #cfc6ea;
+}
+
+.stats-btn:hover {
+    background: #4a3b7a;
 }
 
 /* 방 목록 영역 */

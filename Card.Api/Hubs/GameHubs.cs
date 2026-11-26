@@ -66,14 +66,15 @@ public class GameHub : Hub
 
     // 🔒 방 전원에게 각자 관점으로 마스킹된 방 상태를 전송.
     // 그룹 브로드캐스트 대체 — 다른 플레이어의 손패/뱅 역할 등 비공개 정보 보호.
-    private Task BroadcastRoomAsync(GameRoom room, string eventName = "RoomUpdated") => BroadcastRoomAsync(Clients, room, eventName);
+    private Task BroadcastRoomAsync(GameRoom room, string eventName = "RoomUpdated") => BroadcastRoomAsync(Clients, room, _roomService, eventName);
 
-    private static async Task BroadcastRoomAsync(IHubClients<IClientProxy> clients, GameRoom room, string eventName = "RoomUpdated")
+    // 뷰는 서비스의 CreateViewFor로 만든다 — 상대 손패 마스킹 + 본인에게만 족보 힌트
+    private static async Task BroadcastRoomAsync(IHubClients<IClientProxy> clients, GameRoom room, GameRoomService roomService, string eventName = "RoomUpdated")
     {
         foreach (var p in room.Players)
         {
             if (p.IsBot) continue;
-            await clients.User(p.PlayerId).SendAsync(eventName, room.CreateViewFor(p.PlayerId));
+            await clients.User(p.PlayerId).SendAsync(eventName, roomService.CreateViewFor(room, p.PlayerId));
         }
     }
 
@@ -90,7 +91,7 @@ public class GameHub : Hub
             bool deleted = roomService.LeaveRoom(roomId, playerKey);
             if (deleted) return;
 
-            await BroadcastRoomAsync(clients, room);
+            await BroadcastRoomAsync(clients, room, roomService);
             if (omokEnded)
             {
                 await clients.Group(roomId).SendAsync("OmokGameEnded", new
@@ -249,7 +250,7 @@ public class GameHub : Hub
         if(room == null) throw new HubException("방을 찾을 수 없습니다.");
 
         // 초기 로드 shape를 RoomUpdated와 동일하게 통일 + 호출자 관점으로 마스킹
-        return Task.FromResult<object>(room.CreateViewFor(PlayerKey));
+        return Task.FromResult<object>(_roomService.CreateViewFor(room, PlayerKey));
     }
 
     public async Task UpdateRoomSettings(string roomId, int maxRounds)
@@ -295,15 +296,17 @@ public class GameHub : Hub
         await BroadcastRoomAsync(room);
     }
 
+    // 뻥 대기 시간(ms): 버린 뒤 이 시간 안에만 뻥 가능. 턴은 기다리지 않고 바로 넘어간다
+    private const int PungWindowMs = 2000;
+
     public async Task PlayCard(string roomId, PlayingCard card)
     {
         string cardOwnerId = PlayerKey;
         try
         {
-            bool canPung;
-            int myWindowToken = 0;
+            int myWindowToken;
 
-            // ── 1구간: 카드 버림 + 뻥 윈도우 개시 (락 안에서 원자적으로) ──
+            // ── 1구간: 카드 버림 + 뻥 대기 시간 시작 + 턴 이동 (락 안에서 원자적으로) ──
             using (await _roomService.LockRoomAsync(roomId))
             {
                 var room = _roomService.GetRoom(roomId);
@@ -328,36 +331,22 @@ public class GameHub : Hub
                     return;
                 }
 
-                // 뻥(내 패에 동일 숫자 2장 보유) 가능 유저 체크 — 윈도우 열림 여부를 상태에 담아 보내야 하므로 브로드캐스트 전에 연다
-                canPung = room.Players.Any(p => p.PlayerId != cardOwnerId && CheckCanIntercept(p, card));
-                if (canPung)
-                {
-                    // 뻥 윈도우 open — 윈도우마다 고유 토큰. InterruptDiscard는 열린 토큰을 0으로 바꾼 한 명만 통과하고,
-                    // 마감(2구간)은 자기 토큰일 때만 닫아 뒤늦은 마감이 다음 윈도우를 닫지 못하게 한다
-                    myWindowToken = Interlocked.Increment(ref room.PungWindowSeq);
-                    Interlocked.Exchange(ref room.PungWindowFlag, myWindowToken);
-                }
+                // 뻥 대기 시간 시작 — 누가 무엇을 버리든 항상 연다.
+                // (뻥 가능한 사람이 있을 때만 열면 "열렸다/안 열렸다"로 남의 손패 정보가 전원에게 새기 때문)
+                // 대기 시간마다 고유 토큰: InterruptDiscard는 열린 토큰을 0으로 바꾼 한 명만 통과하고,
+                // 마감(2구간)은 자기 토큰일 때만 닫아 뒤늦은 마감이 다음 대기 시간을 닫지 못하게 한다
+                myWindowToken = Interlocked.Increment(ref room.PungWindowSeq);
+                Interlocked.Exchange(ref room.PungWindowFlag, myWindowToken);
+                room.PungWindowDraw = null;
 
-                // 바닥에 카드가 깔린 것(+ 윈도우 열림 여부)을 모두에게 전송
+                // 턴은 기다리지 않고 바로 넘긴다 — 다음 사람은 즉시 뽑을 수 있고,
+                // 대기 시간 안에 뻥이 들어오면 그 사람이 뽑은 카드는 InterruptDiscard가 덱으로 되돌린다
+                MoveToNextTurn(room, cardOwnerId);
                 await BroadcastRoomAsync(room);
             }
 
-            if (!canPung)
-            {
-                // 뻥칠 사람이 없으면 즉시 다음 사람 턴으로 (락 안에서 턴 이동)
-                using (await _roomService.LockRoomAsync(roomId))
-                {
-                    var room = _roomService.GetRoom(roomId);
-                    if (room == null) return;
-                    MoveToNextTurn(room, cardOwnerId);
-                    await BroadcastRoomAsync(room);
-                }
-                return;
-            }
-
-            // 🔥 3초 대기: 다른 유저가 InterruptDiscard를 호출할 시간을 줌.
-            //    이 구간은 락 밖 — 그래야 InterruptDiscard가 락을 잡고 들어올 수 있다.
-            await Task.Delay(3000);
+            // 다른 유저가 InterruptDiscard를 호출할 시간. 락 밖 — 그래야 InterruptDiscard/DrawCard가 락을 잡고 들어올 수 있다.
+            await Task.Delay(PungWindowMs);
 
             // ── 2구간: 윈도우 마감 (락 안에서) ──
             using (await _roomService.LockRoomAsync(roomId))
@@ -365,17 +354,13 @@ public class GameHub : Hub
                 var room = _roomService.GetRoom(roomId);
                 if (room == null) return;
 
-                // 윈도우 close 시도: 내 토큰→0 성공이면 아무도 안 가로챈 것 (0이면 누가 뻥한 것, 다른 토큰이면 이미 다음 윈도우)
-                bool noPungOccurred = Interlocked.CompareExchange(ref room.PungWindowFlag, 0, myWindowToken) == myWindowToken;
-
-                if (noPungOccurred)
+                // 마감 시도: 내 토큰→0 성공이면 아무도 뻥하지 않은 것 (0이면 누가 뻥한 것, 다른 토큰이면 이미 다음 대기 시간)
+                if (Interlocked.CompareExchange(ref room.PungWindowFlag, 0, myWindowToken) == myWindowToken)
                 {
-                    if (!room.IsRoundEnded && !room.IsFinished && room.CurrentTurnPlayerId == cardOwnerId)
-                        MoveToNextTurn(room, cardOwnerId);
-                    // 윈도우 닫힘(isPungWindowOpen=false)은 턴 이동 여부와 상관없이 전파 — 클라가 열린 상태로 남지 않도록
-                    await BroadcastRoomAsync(room);
+                    room.PungWindowDraw = null;      // 이 대기 시간 중의 뽑기는 확정
+                    await BroadcastRoomAsync(room);  // 마감 전파 — 클라이언트 뻥 버튼이 꺼지도록
                 }
-                // 누가 가로챘으면 InterruptDiscard가 turn/결과를 이미 전파했으므로 여기서는 아무것도 안 함
+                // 누가 뻥했으면 InterruptDiscard가 상태를 이미 전파했으므로 여기서는 아무것도 안 함
             }
         }
         catch (Exception ex)
@@ -431,20 +416,6 @@ public class GameHub : Hub
             int openToken = Volatile.Read(ref room.PungWindowFlag);
             if (openToken == 0 || Interlocked.CompareExchange(ref room.PungWindowFlag, 0, openToken) != openToken) return;
 
-            // --- [다른 플레이어의 6장 또는 3장 패 회수 로직] ---
-            foreach (var p in room.Players)
-            {
-                // 뻥을 한 본인이 아니고, 이미 카드를 뽑아 패가 6장 혹은 3장인 플레이어를 찾음
-                if (p.PlayerId != player.PlayerId && (p.Hand.Count == 6 || p.Hand.Count == 3))
-                {
-                    // 마지막으로 뽑은 카드를 패에서 제거
-                    var lastDrawnCard = p.Hand.Last();
-                    p.Hand.RemoveAt(p.Hand.Count - 1);
-                    // 제거한 카드를 덱의 맨 위로 다시 삽입
-                    room.Deck.Insert(0, lastDrawnCard);
-                }
-            }
-
             // --- 수정된 부분: 숫자 카드 우선순위 로직 ---
             // 1-1. 내 패에서 상대가 버린 카드와 같은 숫자의 인덱스들을 먼저 찾음
             var sameRankIndexes = player.Hand
@@ -476,6 +447,14 @@ public class GameHub : Hub
 
             if (handIndexes.Count >= 2)
             {
+                // 뻥 대기 시간 중에 다음 사람이 이미 뽑았으면 그 카드는 덱으로 되돌린다 (뽑은 사람이 봤으므로 섞어서 넣음)
+                var reverted = _roomService.RevertPungWindowDraw(room, openToken);
+                if (reverted != null)
+                {
+                    var drawerName = room.Players.FirstOrDefault(p => p.PlayerId == reverted.PlayerId)?.Name ?? reverted.PlayerId;
+                    await Clients.Group(roomId).SendAsync("ErrorMessage", $"🔄 {drawerName}님이 방금 뽑은 카드는 뻥으로 덱에 돌아갔습니다 (덱 섞음)");
+                }
+
                 // 2. 서비스의 DiscardCards를 호출하여 2장을 '버려진 카드 더미'로 이동
                 // (이 메서드 내부에서 room.DiscardPile.Add가 수행됨)
                 _roomService.DiscardCards(room, player, handIndexes);
@@ -1194,7 +1173,6 @@ public class GameHub : Hub
                 var r = _roomService.GetRoom(roomId);
                 if (r == null || !r.IsStarted || r.IsFinished) return;
                 if (r.IsRoundEnded) return;
-                if (r.IsPungWindowOpen) return;   // 윈도우 마감(3초 뒤)이 턴을 넘기므로 여기서는 건드리지 않음
                 if (r.CurrentTurnPlayerId != timedOutPlayerId) return;
                 if ((DateTime.UtcNow - r.TurnStartedAt).TotalSeconds < r.TurnTimeoutSec - graceSec) return;
 

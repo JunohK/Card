@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { isMuted, setMuted, subscribeMute } from "../sound/sound";
+import { getSoundTogglePlacement, subscribeSoundTogglePlacement } from "./soundTogglePlacement";
 
 export default function SoundToggle() {
     const [muted, setMutedState] = useState<boolean>(isMuted());
+    // 페이지가 지정한 위치를 따라감 (게임 화면: 우측 하단 라이브챗 왼쪽).
+    // 게임 화면에서 새로고침하면 페이지의 effect가 이 컴포넌트의 구독보다 먼저 실행되는데,
+    // useSyncExternalStore는 구독 직후 현재 값을 다시 읽으므로 그 순서 문제가 없다.
+    const placement = useSyncExternalStore(subscribeSoundTogglePlacement, getSoundTogglePlacement);
 
     useEffect(() => {
         // 다른 컴포넌트/탭에서 음소거 변경 시 동기화
@@ -22,8 +27,7 @@ export default function SoundToggle() {
             aria-label={muted ? "음소거 해제" : "음소거"}
             style={{
                 position: "fixed",
-                top: "0.75rem",
-                right: "0.75rem",
+                ...placement,
                 zIndex: 9999,
                 width: "40px",
                 height: "40px",

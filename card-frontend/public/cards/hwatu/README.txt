@@ -1,14 +1,12 @@
 화투 모드 카드 이미지 폴더
 
-파일 컨벤션:
-  <rank>_<suit>.png    예: 1_spade.png, 2_heart.png, 12_club.png
-  joker.png            조커 카드 (모드와 무관하게 단일 이미지)
+현재 화투 모드 카드 앞면은 이 폴더의 이미지가 아니라 코드에서 그린 SVG로 표시됨.
+  src/util/hwatuCard.ts — 12달 상징(소나무·매화·벚꽃·…·비)을 단순 도형으로 그려 data URI로 반환
+  GamePage.tsx getCardImageSrc — 화투 모드이면 위 함수 결과를 background-image로 사용
+  숫자(달)는 네 모서리에, 무늬(♠♥♦♣, 같은 달 4장 구분)는 위 가운데에 SVG 안에 포함됨
 
-rank: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11(=J), 12(=Q)
-suit: spade, heart, diamond, club
+실물 이미지로 바꾸고 싶으면 getCardImageSrc가 이 폴더의 파일 경로를 돌려주도록 수정하면 됨.
+  권장 파일 컨벤션: <달>_<suit>.png (예: 1_spade.png … 12_club.png), suit: spade/heart/diamond/club
+  서버 Rank 문자열 매핑: A → 1, J → 11, Q → 12, 그 외는 그대로 숫자
 
-서버는 Rank를 "A","2"~"10","J","Q" 문자열로 전송함. 프론트에서 다음 매핑으로 파일명 결정:
-  A → 1, J → 11, Q → 12, 그 외는 그대로 숫자
-
-이미지가 없으면 GamePage가 자동으로 텍스트 카드로 fallback 렌더링.
-총 필요 이미지: 12 rank × 4 suit + 1 joker = 49장 (단, 사용자가 원하는 만큼만 만들어도 됨)
+조커는 모드와 무관하게 기존 텍스트 카드(노란 배경 🃏)로 표시됨.

@@ -193,6 +193,21 @@
 .my-card { margin-left: -25px; transition: transform 0.2s; }
 .my-card:first-child { margin-left: 0; }
 .my-card:hover { transform: translateY(-40px) !important; z-index: 10; }
+/* 손패 숫자 네 모서리 — 위 줄은 정방향, 아래 줄은 180° 회전해 왼쪽·오른쪽 모두 표시 */
+.my-card .card-corners { display: flex; justify-content: space-between; }
+.my-card .card-corners.bottom { transform: rotate(180deg); }
+.my-card .rank { font-size: 1.1rem; }
+/* 같은 숫자끼리 같은 테두리 색 (2장 이상인 숫자, 오름차순으로 6색 순환), 조커는 금색 */
+.my-card.rank-group-0 { outline: 3px solid #3b82f6; outline-offset: -3px; }
+.my-card.rank-group-1 { outline: 3px solid #22c55e; outline-offset: -3px; }
+.my-card.rank-group-2 { outline: 3px solid #f97316; outline-offset: -3px; }
+.my-card.rank-group-3 { outline: 3px solid #a855f7; outline-offset: -3px; }
+.my-card.rank-group-4 { outline: 3px solid #06b6d4; outline-offset: -3px; }
+.my-card.rank-group-5 { outline: 3px solid #ec4899; outline-offset: -3px; }
+.my-card.rank-group-joker { outline: 3px solid #f1c40f; outline-offset: -3px; }
+/* 족보 힌트 — 서버가 본인에게만 보내는 winHint 표시 */
+.win-hint { text-align: center; font-size: 0.95rem; color: #fde68a; margin-top: -8px; padding-bottom: 8px; }
+.win-hint.winning { color: #86efac; font-weight: bold; }
 
 .modal-overlay {
   position: fixed; top:0; left:0; width:100%; height:100%;

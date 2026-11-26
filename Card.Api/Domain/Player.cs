@@ -38,6 +38,8 @@ public class Player
     // 바가지 상태(2장 + 같은 숫자 또는 조커 포함) — 손패 내용 대신 파생 불리언만 공개
     // (기존 UI가 상대 손패를 직접 읽어 표시하던 정보를 보존)
     public bool IsBagaji { get; set; }
+    // 족보 힌트 — 본인 뷰에만 실림 (GameRoomService.CreateViewFor가 채움). 상대 뷰에서는 항상 null
+    public WinHint? WinHint { get; set; }
 
     /// <summary>viewer 관점의 직렬화용 뷰 — 본인이 아니면 손패 내용을 숨긴다.</summary>
     public Player CreateViewFor(string viewerPlayerId)
@@ -48,7 +50,22 @@ public class Player
         view.IsBagaji = hand.Count == 2 &&
             (hand.Any(c => c.Rank == "Joker" || c.Rank == "JK") || hand[0].Rank == hand[1].Rank);
         if (PlayerId != viewerPlayerId)
+        {
             view.Hand = new List<PlayingCard>();
+            view.WinHint = null;
+        }
         return view;
     }
 }
+
+/// <summary>본인 뷰 전용 족보 힌트. 6장이면 지금 승리 가능 여부, 5장이면 어떤 카드가 오면 승리인지(Outs)</summary>
+public sealed class WinHint
+{
+    public bool IsWinning { get; set; }
+    public string? WinType { get; set; }
+    public int Score { get; set; }
+    public List<WinOut> Outs { get; set; } = new();
+}
+
+/// <summary>Rank 카드가 손에 들어오면 WinType 족보가 완성된다</summary>
+public sealed record WinOut(string Rank, string WinType);

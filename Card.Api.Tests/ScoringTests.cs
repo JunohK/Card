@@ -10,6 +10,38 @@ public class ScoringTests
     private readonly GameRoomService _svc = new();
 
     [Fact]
+    public void WinHint_5장이면_어떤_카드가_오면_이기는지_알려준다()
+    {
+        var hint = _svc.ComputeWinHint(Hand("5", "6", "7", "8", "9"), CardMode.Trump, jokerCount: 1);
+        Assert.NotNull(hint);
+        Assert.False(hint!.IsWinning);
+        Assert.Contains(hint.Outs, o => o.Rank == "4" && o.WinType == "스트레이트");
+        Assert.Contains(hint.Outs, o => o.Rank == "10" && o.WinType == "스트레이트");
+        Assert.Contains(hint.Outs, o => o.Rank == "Joker");
+        Assert.DoesNotContain(hint.Outs, o => o.Rank == "2");
+    }
+
+    [Fact]
+    public void WinHint_6장이_족보면_지금_승리_가능()
+    {
+        var hint = _svc.ComputeWinHint(Hand("3", "4", "5", "6", "7", "8"), CardMode.Trump, 1);
+        Assert.NotNull(hint);
+        Assert.True(hint!.IsWinning);
+        Assert.Equal("스트레이트", hint.WinType);
+        Assert.Equal(-33, hint.Score);
+        Assert.Empty(hint.Outs);
+    }
+
+    [Fact]
+    public void WinHint_가능한_카드가_없거나_5_6장이_아니면_null()
+    {
+        // 2,5,8,J,K: 어떤 1장을 더해도 스트레이트/68-/합10이하/4-2/3-3/2-2-2 불가 (조커 없음)
+        Assert.Null(_svc.ComputeWinHint(Hand("2", "5", "8", "J", "K"), CardMode.Trump, 0));
+        Assert.Null(_svc.ComputeWinHint(Hand("2", "5", "8"), CardMode.Trump, 1));
+        Assert.Null(_svc.ComputeWinHint(Hand("2", "5", "8", "J", "K", "3"), CardMode.Trump, 1));
+    }
+
+    [Fact]
     public void Straight_6연속이면_구간합의_음수()
     {
         var r = _svc.CheckWinCondition(Hand("3", "4", "5", "6", "7", "8"));

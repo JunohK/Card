@@ -116,6 +116,45 @@ public partial class GameRoomService
         return (false, 0);
     }
 
+    /// <summary>
+    /// 본인 뷰용 족보 힌트. 6장이면 지금 족보인지, 5장이면 "어떤 카드가 오면 족보인지"를
+    /// 후보 1장씩 더해 CheckWinCondition을 그대로 돌려 구한다 (판정 로직 단일화). 해당 없으면 null.
+    /// </summary>
+    public WinHint? ComputeWinHint(List<PlayingCard> hand, CardMode cardMode, int jokerCount)
+    {
+        if (hand.Count == 6)
+        {
+            var now = CheckWinCondition(hand, cardMode);
+            return now.isValid ? new WinHint { IsWinning = true, WinType = now.winType, Score = now.scoreValue } : null;
+        }
+        if (hand.Count != 5) return null;
+
+        int maxRank = cardMode == CardMode.Hwatu ? 12 : 13;
+        var hint = new WinHint();
+        for (int v = 1; v <= maxRank; v++)
+        {
+            string rank = v switch { 1 => "A", 11 => "J", 12 => "Q", 13 => "K", _ => v.ToString() };
+            var r = CheckWinCondition(hand.Append(new PlayingCard { Rank = rank }).ToList(), cardMode);
+            if (r.isValid) hint.Outs.Add(new WinOut(rank, r.winType));
+        }
+        if (jokerCount > 0)
+        {
+            var r = CheckWinCondition(hand.Append(new PlayingCard { Type = CardType.Joker, Rank = "Joker" }).ToList(), cardMode);
+            if (r.isValid) hint.Outs.Add(new WinOut("Joker", r.winType));
+        }
+        return hint.Outs.Count > 0 ? hint : null;
+    }
+
+    /// <summary>viewer 관점 뷰(상대 손패 마스킹) + 본인에게만 족보 힌트를 싣는다. 허브가 클라이언트로 보낼 때 이걸 쓴다.</summary>
+    public GameRoom CreateViewFor(GameRoom room, string viewerPlayerId)
+    {
+        var view = room.CreateViewFor(viewerPlayerId);
+        if (room.GameMode != GameMode.Cards || !room.IsStarted) return view;
+        var me = view.Players.FirstOrDefault(p => p.PlayerId == viewerPlayerId);
+        if (me != null) me.WinHint = ComputeWinHint(me.Hand, room.CardMode, room.JokerCount);
+        return view;
+    }
+
     // 조커 식별 단일 진입점 — Joker/JK/Joker1/Joker2 (case-insensitive)
     public static bool IsJoker(PlayingCard card)
     {

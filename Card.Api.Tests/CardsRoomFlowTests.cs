@@ -144,18 +144,65 @@ public class CardsRoomFlowTests
     }
 
     [Fact]
-    public void DrawCard_뻥윈도우가_열려있으면_뽑지_못함()
+    public void DrawCard_뻥대기시간_중에도_뽑을수있고_그_뽑기는_기록된다()
     {
         var (svc, room) = Rooms.Cards(2);
         svc.StartGame(room.RoomId, 3);
         var p1 = Rooms.P(room, "p1");
-        room.PungWindowFlag = 7;                               // 허브가 연 윈도우 토큰
-        Assert.True(room.IsPungWindowOpen);
-        svc.DrawCard(room.RoomId, "p1");
-        Assert.Equal(5, p1.Hand.Count);
-        room.PungWindowFlag = 0;
+        room.PungWindowFlag = 7;                               // 허브가 연 대기 시간 토큰
         svc.DrawCard(room.RoomId, "p1");
         Assert.Equal(6, p1.Hand.Count);
+        Assert.NotNull(room.PungWindowDraw);
+        Assert.Equal(7, room.PungWindowDraw!.Token);
+        Assert.Equal("p1", room.PungWindowDraw.PlayerId);
+        Assert.Same(p1.Hand[^1], room.PungWindowDraw.Card);
+    }
+
+    [Fact]
+    public void DrawCard_뻥대기시간_밖의_뽑기는_기록하지_않음()
+    {
+        var (svc, room) = Rooms.Cards(2);
+        svc.StartGame(room.RoomId, 3);
+        svc.DrawCard(room.RoomId, "p1");
+        Assert.Null(room.PungWindowDraw);
+    }
+
+    [Fact]
+    public void RevertPungWindowDraw_뽑았던_카드를_손에서_빼_덱에_섞어_넣는다()
+    {
+        var (svc, room) = Rooms.Cards(2);
+        svc.StartGame(room.RoomId, 3);
+        var p1 = Rooms.P(room, "p1");
+        int turnsBefore = p1.RoundTurnCount;
+        int deckBefore = room.Deck.Count;
+        room.PungWindowFlag = 7;
+        svc.DrawCard(room.RoomId, "p1");
+        var drawn = room.PungWindowDraw!.Card;
+
+        var reverted = svc.RevertPungWindowDraw(room, 7);
+
+        Assert.NotNull(reverted);
+        Assert.Same(drawn, reverted!.Card);
+        Assert.Equal(5, p1.Hand.Count);
+        Assert.DoesNotContain(drawn, p1.Hand);
+        Assert.Equal(deckBefore, room.Deck.Count);
+        Assert.Contains(drawn, room.Deck);
+        Assert.Equal(turnsBefore, p1.RoundTurnCount);
+        Assert.Null(room.PungWindowDraw);
+    }
+
+    [Fact]
+    public void RevertPungWindowDraw_다른_대기시간의_기록이면_되돌리지_않음()
+    {
+        var (svc, room) = Rooms.Cards(2);
+        svc.StartGame(room.RoomId, 3);
+        var p1 = Rooms.P(room, "p1");
+        room.PungWindowFlag = 7;
+        svc.DrawCard(room.RoomId, "p1");
+
+        Assert.Null(svc.RevertPungWindowDraw(room, 8));
+        Assert.Equal(6, p1.Hand.Count);
+        Assert.NotNull(room.PungWindowDraw);                   // 기록은 그대로
     }
 
     [Fact]
