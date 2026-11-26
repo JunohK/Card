@@ -316,6 +316,24 @@ public class CardsRoomFlowTests
     }
 
     [Fact]
+    public void StartNextRound_승자가_결과창_중에_나갔으면_방장이_선()
+    {
+        var (svc, room) = Rooms.Cards(3);
+        svc.StartGame(room.RoomId, 3);
+        var p1 = Rooms.P(room, "p1");
+        p1.Hand = Hand("5", "5", "5", "9", "9", "9");
+        Assert.True(svc.DeclareWin(room, p1, WinReason.ManualDeclare));   // p1 승 → 다음 라운드 선 후보
+        svc.LeaveRoom(room.RoomId, "p1");                                  // 결과창 중 퇴장 → 방장 p2 승계
+
+        svc.StartNextRound(room);
+
+        Assert.Equal(2, room.CurrentRound);
+        Assert.Equal("p2", room.HostPlayerId);
+        Assert.Equal("p2", room.CurrentTurnPlayerId);                      // 유령 ID가 아닌 방장이 선
+        Assert.Contains(room.Players, p => p.PlayerId == room.CurrentTurnPlayerId);
+    }
+
+    [Fact]
     public void DeclareWin_족보없으면_거부_있으면_정산()
     {
         var (svc, room) = Rooms.Cards(2);

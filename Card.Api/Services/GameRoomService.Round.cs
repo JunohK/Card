@@ -107,8 +107,10 @@ public partial class GameRoomService
     {
         if (room == null || !room.IsRoundEnded || room.IsFinished) return;
 
-        // 턴 설정을 위해 이전 라운드 승리자를 저장
-        string nextFirstPlayer = room.WinnerPlayerId;
+        // 턴 설정을 위해 이전 라운드 승리자를 저장. 결과창 중에 나가서 방에 없으면 방장이 선
+        string? nextFirstPlayer = room.WinnerPlayerId;
+        if (!room.Players.Any(p => p.PlayerId == nextFirstPlayer))
+            nextFirstPlayer = room.HostPlayerId;
 
         // 2. 라운드 번호 증가 및 '핵심' 상태 초기화
         room.CurrentRound++;      

@@ -25,6 +25,9 @@ export function useTurnTimeout(
             return;
         }
         const turnKey = currentTurnId;
+        // 카운트다운이 새로 시작될 때마다 발사 기록을 초기화 — 같은 사람이 연속으로 타임아웃돼도 매번 호출되도록
+        // (서버가 "현재 턴 + 마감시각"을 검증하므로 중복 호출은 무해)
+        firedRef.current = null;
         let remaining = timeoutSec;
         setSecLeft(remaining);
         const id = setInterval(() => {

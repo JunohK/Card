@@ -368,9 +368,11 @@ public class GameHub : Hub
                 // 윈도우 close 시도: 내 토큰→0 성공이면 아무도 안 가로챈 것 (0이면 누가 뻥한 것, 다른 토큰이면 이미 다음 윈도우)
                 bool noPungOccurred = Interlocked.CompareExchange(ref room.PungWindowFlag, 0, myWindowToken) == myWindowToken;
 
-                if (noPungOccurred && !room.IsRoundEnded && !room.IsFinished && room.CurrentTurnPlayerId == cardOwnerId)
+                if (noPungOccurred)
                 {
-                    MoveToNextTurn(room, cardOwnerId);
+                    if (!room.IsRoundEnded && !room.IsFinished && room.CurrentTurnPlayerId == cardOwnerId)
+                        MoveToNextTurn(room, cardOwnerId);
+                    // 윈도우 닫힘(isPungWindowOpen=false)은 턴 이동 여부와 상관없이 전파 — 클라가 열린 상태로 남지 않도록
                     await BroadcastRoomAsync(room);
                 }
                 // 누가 가로챘으면 InterruptDiscard가 turn/결과를 이미 전파했으므로 여기서는 아무것도 안 함
@@ -1192,6 +1194,7 @@ public class GameHub : Hub
                 var r = _roomService.GetRoom(roomId);
                 if (r == null || !r.IsStarted || r.IsFinished) return;
                 if (r.IsRoundEnded) return;
+                if (r.IsPungWindowOpen) return;   // 윈도우 마감(3초 뒤)이 턴을 넘기므로 여기서는 건드리지 않음
                 if (r.CurrentTurnPlayerId != timedOutPlayerId) return;
                 if ((DateTime.UtcNow - r.TurnStartedAt).TotalSeconds < r.TurnTimeoutSec - graceSec) return;
 

@@ -145,6 +145,7 @@ export default function GamePage() {
     const myId = getMyPlayerId();
     const prevHandRef = useRef<string[]>([]);
     const isSubscribed = useRef(false);
+    const historyPushedRef = useRef(false);   // 게임당 1회만 전적 기록 (종료 후 RoomUpdated가 반복돼도 중복 방지)
 
     // 🟢 카드 고유 키 생성
     const getCardKey = (card: any) => {
@@ -249,16 +250,19 @@ export default function GamePage() {
             if (gameFinished) {
                 setShowRoundResult(false);
                 // 전적 DB 반영은 서버가 게임 종료 시 1회 수행 (클라이언트 호출 없음 — 중복 집계 방지)
-                // 게임 결과 통계 — localStorage (게임 전체 승자 = 총점 최저 기준)
-                const gameWinnerIds: string[] = data.gameWinnerIds || data.GameWinnerIds || [];
-                const winnerName = data.gameWinnerName || data.GameWinnerName || data.winnerName || data.WinnerName || "승자 미확정";
-                const winType = data.lastWinType || data.LastWinType || "";
-                pushHistory({
-                    mode: "Cards",
-                    winnerName,
-                    detail: winType,
-                    isMyWin: gameWinnerIds.includes(myId ?? "")
-                });
+                // 게임 결과 통계 — localStorage (게임 전체 승자 = 총점 최저 기준). 종료 후 RoomUpdated가 반복돼도 1회만
+                if (!historyPushedRef.current) {
+                    historyPushedRef.current = true;
+                    const gameWinnerIds: string[] = data.gameWinnerIds || data.GameWinnerIds || [];
+                    const winnerName = data.gameWinnerName || data.GameWinnerName || data.winnerName || data.WinnerName || "승자 미확정";
+                    const winType = data.lastWinType || data.LastWinType || "";
+                    pushHistory({
+                        mode: "Cards",
+                        winnerName,
+                        detail: winType,
+                        isMyWin: gameWinnerIds.includes(myId ?? "")
+                    });
+                }
             } else if (roundEnded) {
                 setShowRoundResult(true);
             }
@@ -302,6 +306,7 @@ export default function GamePage() {
             connection.on("ConnectedUser", onConnectedUser);
 
             connection.on("GameStarted", (data) => {
+                historyPushedRef.current = false;
                 setGame((prev: any) => ({
                     ...prev,
                     winnerName: null,
