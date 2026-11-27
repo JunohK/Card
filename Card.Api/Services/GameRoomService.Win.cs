@@ -74,7 +74,8 @@ public partial class GameRoomService
         if (player == null) return;
 
         // 내 턴 + 카드를 뽑아 3장인 상태 + 패가 2장인 사람이 본인 포함 2명 이상 (클라이언트 STOP 버튼 조건과 동일)
-        bool isActionPhase = room.CurrentTurnPlayerId == player.PlayerId && player.Hand.Count == 3;
+        // 뻥으로 가져온 턴(뻥 후 3장)에는 STOP 불가
+        bool isActionPhase = room.CurrentTurnPlayerId == player.PlayerId && player.Hand.Count == 3 && !room.IsPungTurn;
         bool othersWithTwo = room.Players.Any(p => p.PlayerId != player.PlayerId && p.Hand.Count == 2);
         if (isActionPhase && othersWithTwo)
         {
@@ -283,7 +284,7 @@ public partial class GameRoomService
         if (room.CurrentTurnPlayerId != player.PlayerId)
             return false;
 
-        // 클라이언트 승리선언 버튼 조건과 동일 (턴 카운트 2 이상)
-        return player.RoundTurnCount >= 2;
+        // 첫 바퀴(모두 한 번씩 턴, 뻥으로 건너뛴 사람 포함)가 끝나야 가능 — 클라이언트 승리선언 버튼 조건과 동일
+        return room.IsFirstLapDone;
     }
 }

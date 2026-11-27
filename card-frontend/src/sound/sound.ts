@@ -1,5 +1,7 @@
 // 효과음 시스템 — HTMLAudioElement 기반, 외부 의존성 없음.
 // 파일이 public/sounds/에 없으면 조용히 무시 (catch).
+// 카드 버림·뽑기·본인 차례·뻥은 synth.ts가 Web Audio로 직접 만든 소리를 쓴다 (음원 파일 불필요).
+import { playSynth } from "./synth";
 
 export type SoundName =
     | "place-stone"   // 오목 돌 놓기
@@ -53,6 +55,7 @@ export function subscribeMute(listener: (muted: boolean) => void): () => void {
 // 효과음 재생. 음소거면 즉시 무시. 파일 없으면 조용히 catch.
 export function playSound(name: SoundName, volume = 0.7): void {
     if (isMuted()) return;
+    if (playSynth(name, volume)) return;
     const src = SOUND_FILES[name];
     if (!src) return;
     try {

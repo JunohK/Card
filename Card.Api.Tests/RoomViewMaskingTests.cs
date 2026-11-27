@@ -50,6 +50,9 @@ public class RoomViewMaskingTests
         Assert.DoesNotContain("\"PungWindowSeq\"", json);
         Assert.DoesNotContain("\"PungWindowDraw\"", json);   // 대기 시간 중 뽑은 카드 기록은 비공개
         Assert.Contains("\"IsPungWindowOpen\":false", json);
+        Assert.DoesNotContain("\"FirstLapDoneIds\"", json);   // 내부 기록 — 결과(IsFirstLapDone)만 공개
+        Assert.Contains("\"IsFirstLapDone\":false", json);
+        Assert.Contains("\"IsPungTurn\":false", json);
     }
 
     [Fact]

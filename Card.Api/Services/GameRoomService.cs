@@ -187,10 +187,10 @@ public partial class GameRoomService
                 {
                     // 나간 사람의 턴이었으면 원래 순서상 다음 자리로 턴 이동 (허브 MoveToNextTurn과 동일 규칙)
                     var next = room.Players[leavingIndex % room.Players.Count];
-                    room.CurrentTurnPlayerId = next.PlayerId;
-                    room.TurnStartedAt = DateTime.UtcNow;
-                    next.RoundTurnCount++;
+                    PassTurn(room, playerId, next, byPung: false);
                 }
+                // 첫 바퀴를 아직 안 마친 사람이 나갔으면 남은 사람 기준으로 다시 판정
+                UpdateFirstLap(room);
             }
         }
 
@@ -220,6 +220,7 @@ public partial class GameRoomService
         if (room.WinnerPlayerId == oldId) room.WinnerPlayerId = newId;
         if (room.LastActorPlayerId == oldId) room.LastActorPlayerId = newId;
         if (room.StopCallerId == oldId) room.StopCallerId = newId;
+        if (room.FirstLapDoneIds.Remove(oldId)) room.FirstLapDoneIds.Add(newId);
 
         // 오목
         if (room.Omok != null)

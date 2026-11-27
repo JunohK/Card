@@ -98,16 +98,13 @@ public class CardsRoomFlowTests
 
         svc.DrawCard(room.RoomId, "p2");           // 남의 턴 → 무시
         Assert.Equal(5, p2.Hand.Count);
-        Assert.Equal(0, p2.RoundTurnCount);
 
         svc.DrawCard(room.RoomId, "p1");
         Assert.Equal(6, p1.Hand.Count);
-        Assert.Equal(1, p1.RoundTurnCount);
         Assert.Equal(42, room.DeckCount);
 
         svc.DrawCard(room.RoomId, "p1");           // 6장이면 더 못 뽑음
         Assert.Equal(6, p1.Hand.Count);
-        Assert.Equal(1, p1.RoundTurnCount);
         Assert.Equal("p1", room.CurrentTurnPlayerId);
     }
 
@@ -140,7 +137,6 @@ public class CardsRoomFlowTests
         room.DiscardPile.Add(C("4"));                          // 바닥 1장뿐 → 되돌릴 게 없음
         svc.DrawCard(room.RoomId, "p1");
         Assert.Equal(5, p1.Hand.Count);
-        Assert.Equal(0, p1.RoundTurnCount);
     }
 
     [Fact]
@@ -173,7 +169,6 @@ public class CardsRoomFlowTests
         var (svc, room) = Rooms.Cards(2);
         svc.StartGame(room.RoomId, 3);
         var p1 = Rooms.P(room, "p1");
-        int turnsBefore = p1.RoundTurnCount;
         int deckBefore = room.Deck.Count;
         room.PungWindowFlag = 7;
         svc.DrawCard(room.RoomId, "p1");
@@ -187,7 +182,6 @@ public class CardsRoomFlowTests
         Assert.DoesNotContain(drawn, p1.Hand);
         Assert.Equal(deckBefore, room.Deck.Count);
         Assert.Contains(drawn, room.Deck);
-        Assert.Equal(turnsBefore, p1.RoundTurnCount);
         Assert.Null(room.PungWindowDraw);
     }
 
@@ -203,6 +197,112 @@ public class CardsRoomFlowTests
         Assert.Null(svc.RevertPungWindowDraw(room, 8));
         Assert.Equal(6, p1.Hand.Count);
         Assert.NotNull(room.PungWindowDraw);                   // 기록은 그대로
+    }
+
+    // p1이 버린 7에 대해 뻥 대기 시간(토큰 5)이 열려 있고 턴은 p2로 넘어간 상태
+    private static (GameRoomService svc, GameRoom room) PungSetup(int players = 3)
+    {
+        var (svc, room) = Rooms.Cards(players);
+        svc.StartGame(room.RoomId, 3);
+        var seven = C("7");
+        room.LastDiscardedCard = seven;
+        room.DiscardPile.Add(seven);
+        room.LastActorPlayerId = "p1";
+        svc.PassToNextPlayer(room, "p1");
+        room.PungWindowFlag = 5;
+        return (svc, room);
+    }
+
+    [Fact]
+    public void TryPung_같은숫자_2장을_내고_턴을_가져온다()
+    {
+        var (svc, room) = PungSetup();
+        var p3 = Rooms.P(room, "p3");
+        p3.Hand = Hand("7", "7", "2", "K", "Joker");
+
+        var result = svc.TryPung(room, "p3");
+
+        Assert.NotNull(result);
+        Assert.Same(p3, result!.Puncher);
+        Assert.Null(result.RevertedDraw);
+        Assert.Equal(3, p3.Hand.Count);
+        Assert.Contains(p3.Hand, c => c.Rank == "Joker");      // 같은 숫자가 있으면 조커는 쓰지 않음
+        Assert.Equal(3, room.DiscardPile.Count);
+        Assert.Equal("p3", room.CurrentTurnPlayerId);
+        Assert.Equal("p3", room.LastActorPlayerId);
+        Assert.True(room.IsPungTurn);
+        Assert.Equal(0, room.PungWindowFlag);                  // 대기 시간 닫힘
+        Assert.Contains("p2", room.FirstLapDoneIds);           // 건너뛴 p2는 첫 바퀴 턴을 마친 것으로
+    }
+
+    [Fact]
+    public void TryPung_같은숫자가_1장이면_조커로_채운다()
+    {
+        var (svc, room) = PungSetup();
+        var p3 = Rooms.P(room, "p3");
+        p3.Hand = Hand("7", "2", "3", "K", "Joker");
+
+        Assert.NotNull(svc.TryPung(room, "p3"));
+        Assert.Equal(new[] { "2", "3", "K" }, p3.Hand.Select(c => c.Rank).OrderBy(r => r));
+    }
+
+    [Fact]
+    public void TryPung_자격이없거나_대기시간이_닫혔거나_자기카드면_아무것도_안함()
+    {
+        var (svc, room) = PungSetup();
+        Rooms.P(room, "p3").Hand = Hand("7", "2", "3", "K", "Q");  // 7이 1장, 조커 없음
+        Assert.Null(svc.TryPung(room, "p3"));
+        Assert.Equal(5, room.PungWindowFlag);                       // 자격이 없으면 대기 시간은 그대로
+
+        Rooms.P(room, "p1").Hand = Hand("7", "7", "2", "3", "K");
+        Assert.Null(svc.TryPung(room, "p1"));                        // 자기가 버린 카드
+
+        Rooms.P(room, "p3").Hand = Hand("7", "7", "2", "3", "K");
+        room.PungWindowFlag = 0;
+        Assert.Null(svc.TryPung(room, "p3"));                        // 대기 시간 닫힘
+        Assert.Equal("p2", room.CurrentTurnPlayerId);
+        Assert.Single(room.DiscardPile);
+    }
+
+    [Fact]
+    public void TryPung_같은_대기시간에_두번째_뻥은_실패()
+    {
+        var (svc, room) = PungSetup(4);
+        Rooms.P(room, "p3").Hand = Hand("7", "7", "2", "3", "K");
+        Rooms.P(room, "p4").Hand = Hand("7", "7", "4", "5", "Q");
+
+        Assert.NotNull(svc.TryPung(room, "p3"));
+        Assert.Null(svc.TryPung(room, "p4"));
+        Assert.Equal("p3", room.CurrentTurnPlayerId);
+        Assert.Equal(5, Rooms.P(room, "p4").Hand.Count);
+    }
+
+    [Fact]
+    public void TryPung_대기시간_중_뽑은_카드는_덱으로_되돌린다()
+    {
+        var (svc, room) = PungSetup();
+        var p2 = Rooms.P(room, "p2");
+        svc.DrawCard(room.RoomId, "p2");                             // 대기 시간 중 p2가 뽑음
+        Assert.Equal(6, p2.Hand.Count);
+        Rooms.P(room, "p3").Hand = Hand("7", "7", "2", "3", "K");
+
+        var result = svc.TryPung(room, "p3");
+
+        Assert.NotNull(result!.RevertedDraw);
+        Assert.Equal("p2", result.RevertedDraw!.PlayerId);
+        Assert.Equal(5, p2.Hand.Count);
+    }
+
+    [Fact]
+    public void PassToNextPlayer_순서상_다음_사람_마지막이면_처음으로()
+    {
+        var (svc, room) = Rooms.Cards(3);
+        svc.StartGame(room.RoomId, 3);
+        svc.PassToNextPlayer(room, "p1");
+        Assert.Equal("p2", room.CurrentTurnPlayerId);
+        svc.PassToNextPlayer(room, "p3");
+        Assert.Equal("p1", room.CurrentTurnPlayerId);
+        Assert.False(room.IsPungTurn);
     }
 
     [Fact]
@@ -418,19 +518,95 @@ public class CardsRoomFlowTests
     }
 
     [Fact]
-    public void CanDeclareWin_내턴이고_턴카운트_2이상()
+    public void CanDeclareWin_첫바퀴가_끝난_뒤_내턴일때만()
+    {
+        var (svc, room) = Rooms.Cards(3);
+        svc.StartGame(room.RoomId, 3);
+        var p1 = Rooms.P(room, "p1");
+        var p2 = Rooms.P(room, "p2");
+        var p3 = Rooms.P(room, "p3");
+
+        Assert.False(svc.CanDeclareWin(room, p1));      // 첫 턴
+        svc.PassTurn(room, "p1", p2, byPung: false);
+        Assert.False(svc.CanDeclareWin(room, p2));      // p3 아직 안 함
+        svc.PassTurn(room, "p2", p3, byPung: false);
+        Assert.False(svc.CanDeclareWin(room, p3));      // p3의 첫 턴도 첫 바퀴
+        svc.PassTurn(room, "p3", p1, byPung: false);
+        Assert.True(room.IsFirstLapDone);
+        Assert.True(svc.CanDeclareWin(room, p1));
+        Assert.False(svc.CanDeclareWin(room, p2));      // 남의 턴
+    }
+
+    [Fact]
+    public void 첫바퀴_뻥으로_건너뛴_사람은_턴을_마친_것으로_친다()
+    {
+        var (svc, room) = Rooms.Cards(4);
+        svc.StartGame(room.RoomId, 3);
+        var p2 = Rooms.P(room, "p2");
+        var p4 = Rooms.P(room, "p4");
+        var p1 = Rooms.P(room, "p1");
+
+        // p1이 버리고 p2 턴 → p4가 p1의 카드를 뻥 (p2, p3 건너뜀)
+        svc.PassTurn(room, "p1", p2, byPung: false);
+        svc.PassTurn(room, "p1", p4, byPung: true);
+        Assert.False(room.IsFirstLapDone);              // p4 자신의 첫 턴은 아직 진행 중
+        Assert.False(svc.CanDeclareWin(room, p4));
+        svc.PassTurn(room, "p4", p1, byPung: false);
+        Assert.True(svc.CanDeclareWin(room, p1));
+    }
+
+    [Fact]
+    public void 첫바퀴_다음사람이_곧바로_뻥하면_아무도_건너뛰지_않는다()
     {
         var (svc, room) = Rooms.Cards(2);
         svc.StartGame(room.RoomId, 3);
         var p1 = Rooms.P(room, "p1");
         var p2 = Rooms.P(room, "p2");
-        Assert.False(svc.CanDeclareWin(room, p1));
-        svc.DrawCard(room.RoomId, "p1");            // 턴카운트 1 → 아직 불가
-        Assert.False(svc.CanDeclareWin(room, p1));
-        p1.RoundTurnCount = 2;
-        Assert.True(svc.CanDeclareWin(room, p1));
-        p2.RoundTurnCount = 2;
-        Assert.False(svc.CanDeclareWin(room, p2));  // 남의 턴
+
+        svc.PassTurn(room, "p1", p2, byPung: false);
+        svc.PassTurn(room, "p1", p2, byPung: true);     // p2가 p1의 카드를 뻥
+        Assert.False(room.IsFirstLapDone);
+        svc.PassTurn(room, "p2", p1, byPung: false);
+        Assert.True(room.IsFirstLapDone);
+    }
+
+    [Fact]
+    public void 첫바퀴_기록은_다음_라운드에_초기화된다()
+    {
+        var (svc, room) = Rooms.Cards(2);
+        svc.StartGame(room.RoomId, 3);
+        var p1 = Rooms.P(room, "p1");
+        svc.PassTurn(room, "p1", Rooms.P(room, "p2"), byPung: false);
+        svc.PassTurn(room, "p2", p1, byPung: false);
+        Assert.True(room.IsFirstLapDone);
+        p1.Hand = Hand("3", "4", "5", "6", "7", "8");
+        Assert.True(svc.DeclareWin(room, p1, WinReason.ManualDeclare));
+
+        svc.StartNextRound(room);
+        Assert.False(room.IsFirstLapDone);
+        Assert.Empty(room.FirstLapDoneIds);
+        Assert.False(room.IsPungTurn);
+    }
+
+    [Fact]
+    public void DeclareStop_뻥으로_가져온_턴에는_불가()
+    {
+        var (svc, room) = Rooms.Cards(2);
+        svc.StartGame(room.RoomId, 3);
+        var p1 = Rooms.P(room, "p1");
+        var p2 = Rooms.P(room, "p2");
+        p1.Hand = Hand("9", "10");
+        p2.Hand = Hand("2", "3", "K");                   // 뻥 후 3장
+
+        svc.PassTurn(room, "p1", p2, byPung: true);
+        svc.DeclareStop(room.RoomId, "p2");
+        Assert.False(room.IsStopDeclared);
+
+        svc.PassTurn(room, "p2", p1, byPung: false);     // 일반 턴으로 넘어가면 뻥 턴 해제
+        Assert.False(room.IsPungTurn);
+        svc.PassTurn(room, "p1", p2, byPung: false);
+        svc.DeclareStop(room.RoomId, "p2");
+        Assert.True(room.IsStopDeclared);
     }
 
     [Fact]

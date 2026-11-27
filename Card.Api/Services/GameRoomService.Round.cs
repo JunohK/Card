@@ -15,15 +15,11 @@ public partial class GameRoomService
         if (room.Players.Count < 2)
             throw new InvalidOperationException("2명 이상이어야 게임을 시작할 수 있습니다.");
 
-        foreach (var p in room.Players)
-            p.RoundTurnCount = 0;
-
         room.MaxRounds = maxRounds;
         room.CurrentRound = 1;
         room.IsStarted = true;
         room.IsFinished = false;
         room.WinnerHand.Clear(); // 이전 우승자의 카드리스트 비움
-        room.RoundTurnSequence = 0;
         room.RoundScoreHistory.Clear(); // 라운드 점수 히스토리 초기화
 
         // STOP 관련 상태 초기화
@@ -53,6 +49,7 @@ public partial class GameRoomService
         room.IsRoundEnded = false;
         room.IsStopDeclared = false;
         room.StopCallerId = "";
+        ResetTurnState(room);
         room.WinnerName = null;
         room.WinnerPlayerId = null;
         room.WinnerHand.Clear(); // 라운드 시작 시 카드 리스트 초기화
@@ -62,7 +59,6 @@ public partial class GameRoomService
             p.Hand.Clear();
             p.IsWaitingFinalWin = false;
             p.Score = 0; // 이번 라운드 점수 초기화
-            p.RoundTurnCount = 0; // 각 플레이어가 몇번쨰 턴인지 확인
 
             // 덱에서 직접 꺼내서 분배 (덱 수량 실시간 차감 반영)
             for (int i = 0; i < 5; i++)
@@ -116,11 +112,11 @@ public partial class GameRoomService
         room.CurrentRound++;      
         room.IsRoundEnded = false; 
         room.IsFinished = false;     // 혹시 true였다면 리셋
-        room.RoundTurnSequence = 0;
         
         // ✅ [가장 중요] STOP 선언 상태 초기화
         room.IsStopDeclared = false;
         room.StopCallerId = string.Empty;
+        ResetTurnState(room);
 
         // ✅ 우승 데이터 초기화
         room.WinnerPlayerId = string.Empty;
@@ -137,7 +133,6 @@ public partial class GameRoomService
             player.Hand = deck.Take(5).ToList(); 
             deck.RemoveRange(0, 5);
             player.Score = 0; // 새 라운드를 위해 라운드 점수만 초기화
-            player.RoundTurnCount = 0;
         }
         room.Deck = deck;
         

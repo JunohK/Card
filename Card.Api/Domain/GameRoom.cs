@@ -72,7 +72,6 @@ public class GameRoom
     public string? LastWinType { get; set; } 
     public int MaxRounds { get; set; }
     public int CurrentRound { get; set; }
-    public int RoundTurnSequence { get; set; } = 0;
 
     // 게임 전체 승자(총점 최저, 동점이면 전원). 게임 종료 시 서비스가 설정 — 전적(Wins) 집계·최종 결과창용
     public List<string> GameWinnerIds { get; set; } = new();
@@ -118,6 +117,13 @@ public class GameRoom
     public string LastActorPlayerId { get; set; } = string.Empty;
     public bool IsStopDeclared { get; set; } = false;
     public string StopCallerId { get; set; } = "";
+
+    // 첫 바퀴 — 모두가 한 번씩 턴을 마쳐야 승리 선언 가능 (뻥으로 건너뛴 사람은 마친 것으로 침). GameRoomService.PassTurn이 갱신
+    public bool IsFirstLapDone { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public HashSet<string> FirstLapDoneIds { get; set; } = new();
+    // 지금 턴이 뻥으로 가져온 턴인지 — 이 턴에는 STOP 불가
+    public bool IsPungTurn { get; set; }
 
     // 뻥/가로채기 윈도우 토큰 (0=닫힘, 그 외=열린 윈도우의 고유 토큰)
     // Interlocked로만 접근 — 동시 InterruptDiscard race 방지 + 뒤늦은 마감이 다음 윈도우를 닫지 못하게 토큰 비교

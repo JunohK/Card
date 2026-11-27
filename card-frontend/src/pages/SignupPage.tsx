@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../css/SignupPage.css"; // CSS 파일 경로
+import { signup } from "../auth/authApi";
 
 export default function SignupPage() {
     const navigate = useNavigate();
@@ -24,18 +25,8 @@ export default function SignupPage() {
         try {
             setLoading(true);
 
-            const res = await fetch("http://localhost:5101/api/auth/signup", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
-                body: JSON.stringify({ nickname, password }),
-            });
-
-            if (!res.ok) {
-                const msg = await res.text();
-                throw new Error(msg || "회원가입 실패");
-            }
+            // 로그인과 같은 서버 주소(getBaseUrl)로 요청 — 배포(Vercel)에서는 ngrok 주소, 로컬에서는 localhost:5101
+            await signup(nickname, password);
 
             setSuccess(true);
             setNickname("");
@@ -43,8 +34,8 @@ export default function SignupPage() {
 
             setTimeout(() => navigate("/login"), 1000);
 
-        } catch (err: any) {
-            setError(err.message);
+        } catch (err: unknown) {
+            setError(err instanceof Error && err.message ? err.message : "회원가입 실패");
         } finally {
             setLoading(false);
         }

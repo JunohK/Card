@@ -2,14 +2,14 @@
 
 여기에 다음 파일을 넣으면 자동 재생됨. 파일이 없으면 조용히 무시 (게임 진행에 영향 없음).
 
+※ 카드 버림(play-card), 카드 뽑기(draw-card), 본인 차례(my-turn), 뻥(pung)은
+  src/sound/synth.ts가 Web Audio로 직접 만든 소리를 쓰므로 파일이 필요 없고, 넣어도 쓰이지 않음.
+  음원 파일로 바꾸려면 synth.ts의 SYNTHS에서 해당 항목을 빼고 파일을 넣을 것.
+
 필요한 파일 (mp3 권장, wav/ogg도 가능 — 단 코드의 경로와 정확히 일치해야 함):
   place-stone.mp3   오목 돌 놓을 때 "딱" 소리
-  play-card.mp3     카드 내릴 때
-  draw-card.mp3     덱에서 카드 뽑을 때
-  pung.mp3          뻥 성공
   win.mp3           라운드/게임 승리
   resign.mp3        기권
-  my-turn.mp3       본인 차례 시작 알림
   bang.mp3          뱅 BANG/Punch 발사 — "탕!"
   heal.mp3          뱅 회복 (Beer/Saloon/Whisky/Tequila)
   equip.mp3         뱅 장착 (무기/장비)

@@ -54,7 +54,6 @@ public class LeaveRoomInGameTests
         Assert.False(svc.LeaveRoom(room.RoomId, "p2"));
 
         Assert.Equal("p3", room.CurrentTurnPlayerId);
-        Assert.Equal(1, Rooms.P(room, "p3").RoundTurnCount);
         Assert.True(room.IsStarted);
         Assert.False(room.IsFinished);
     }
@@ -76,7 +75,6 @@ public class LeaveRoomInGameTests
         svc.StartGame(room.RoomId, 3);
         svc.LeaveRoom(room.RoomId, "p3");
         Assert.Equal("p1", room.CurrentTurnPlayerId);
-        Assert.Equal(0, Rooms.P(room, "p1").RoundTurnCount);
     }
 
     [Fact]

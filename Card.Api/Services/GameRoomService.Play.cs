@@ -18,7 +18,7 @@ public partial class GameRoomService
         }
     }
 
-    public GameRoom DrawCard(string roomId, string playerId)
+    public GameRoom? DrawCard(string roomId, string playerId)
     {
         var room = GetRoom(roomId);
         if (room == null || !room.IsStarted || room.IsFinished || room.CurrentTurnPlayerId != playerId)
@@ -33,9 +33,6 @@ public partial class GameRoomService
         // 🔹 덱이 비면 버림더미(바닥 마지막 1장 제외)를 섞어 자동 보충
         if (room.Deck.Count == 0) RefillDeckFromDiscard(room);
         if (room.Deck.Count == 0) return room;
-
-        // 플레이어 턴 횟수 확인하기(승리선언 하기위함)
-        player.RoundTurnCount++;
 
         // 1장을 뽑으면 3장 또는 6장이 됨
         var newCard = room.Deck[0];
@@ -52,22 +49,42 @@ public partial class GameRoomService
     }
 
     /// <summary>
-    /// 뻥 대기 시간 중에 뽑았던 카드를 되돌린다 — 그 사이에 뻥이 성립하면 그 뽑기는 무효.
-    /// 뽑은 사람이 이미 본 카드라 덱 맨 위가 아니라 섞어서 넣는다. 되돌렸으면 그 기록, 해당 없으면 null.
+    /// 턴을 to에게 넘긴다 (일반 턴 이동·뻥 공용). fromPlayerId는 직전에 카드를 버린 사람.
+    /// 첫 바퀴 기록: 버린 사람 + 그 다음부터 to 직전까지(뻥으로 건너뛴 사람)를 턴을 마친 것으로 친다.
     /// </summary>
-    public PungWindowDraw? RevertPungWindowDraw(GameRoom room, int windowToken)
+    public void PassTurn(GameRoom room, string fromPlayerId, Player to, bool byPung)
     {
-        var draw = room.PungWindowDraw;
-        if (draw == null || draw.Token != windowToken) return null;
-        room.PungWindowDraw = null;
+        int n = room.Players.Count;
+        int from = room.Players.FindIndex(p => p.PlayerId == fromPlayerId);
+        int target = room.Players.IndexOf(to);
+        if (from >= 0 && target >= 0)
+        {
+            for (int k = from; k != target; k = (k + 1) % n)
+                room.FirstLapDoneIds.Add(room.Players[k].PlayerId);
+        }
+        UpdateFirstLap(room);
 
-        var drawer = room.Players.FirstOrDefault(p => p.PlayerId == draw.PlayerId);
-        if (drawer == null || !drawer.Hand.Remove(draw.Card)) return null;
+        room.CurrentTurnPlayerId = to.PlayerId;
+        room.TurnStartedAt = DateTime.UtcNow;
+        room.IsPungTurn = byPung;
+    }
 
-        drawer.RoundTurnCount--;                       // DrawCard에서 올린 만큼만 되돌림
-        room.Deck.Add(draw.Card);
-        room.Deck = room.Deck.OrderBy(_ => Guid.NewGuid()).ToList();
-        return draw;
+    /// <summary>순서상 다음 사람에게 턴을 넘긴다 (일반 턴 이동 — 버림 후·타임아웃).</summary>
+    public void PassToNextPlayer(GameRoom room, string currentPlayerId)
+    {
+        int currentIndex = room.Players.FindIndex(p => p.PlayerId == currentPlayerId);
+        var next = room.Players[(currentIndex + 1) % room.Players.Count];
+        PassTurn(room, currentPlayerId, next, byPung: false);
+    }
+
+    private static void UpdateFirstLap(GameRoom room) =>
+        room.IsFirstLapDone = room.IsFirstLapDone || room.Players.All(p => room.FirstLapDoneIds.Contains(p.PlayerId));
+
+    private static void ResetTurnState(GameRoom room)
+    {
+        room.IsFirstLapDone = false;
+        room.FirstLapDoneIds.Clear();
+        room.IsPungTurn = false;
     }
 
     /// <summary>카드 1장 버림. 실제로 버렸으면 true, 내 턴이 아니거나 손에 없는 카드면 false(상태 변경 없음). 턴 이동은 하지 않는다.</summary>
